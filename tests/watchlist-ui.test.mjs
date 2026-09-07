@@ -15,13 +15,14 @@ const { render, screen, cleanup, waitFor } = await import('@testing-library/reac
 const { default: userEvent } = await import('@testing-library/user-event');
 const { WatchlistToolbar } = await import('../components/watchlist-toolbar.tsx');
 const { Sparkline, Candlestick } = await import('../components/stock-charts.tsx');
+const { Board } = await import('../components/stock-dashboard.tsx');
 const samsung = { market: 'KOSPI', code: '005930', chartCode: '005930', name: '삼성전자' };
 const sdi = { market: 'KOSPI', code: '006400', chartCode: '006400', name: '삼성SDI' };
 const apple = { market: 'NASDAQ', code: 'AAPL', chartCode: 'AAPL.O', name: '애플' };
 const originalFetch = globalThis.fetch;
 after(() => { globalThis.fetch = originalFetch; cleanup(); dom.window.close(); });
 
-test('Samsung substring search supports keyboard choice, mouse choice, duplicate prevention and removal', async () => {
+test('Samsung substring search supports keyboard and mouse selection without duplicate chips or candle controls', async () => {
   const requests = [];
   globalThis.fetch = async (url) => {
     requests.push(url);
@@ -30,8 +31,7 @@ test('Samsung substring search supports keyboard choice, mouse choice, duplicate
   };
   function Harness() {
     const [items, setItems] = React.useState([]);
-    const [candle, setCandle] = React.useState(true);
-    return React.createElement(WatchlistToolbar, { items, onChange: setItems, chart: true, candle, onCandleChange: setCandle, storageError: '' });
+    return React.createElement(WatchlistToolbar, { items, onChange: setItems, storageError: '' });
   }
   render(React.createElement(Harness));
   const user = userEvent.setup({ document: dom.window.document });
@@ -39,20 +39,48 @@ test('Samsung substring search supports keyboard choice, mouse choice, duplicate
   await user.type(input, '삼성');
   await screen.findByRole('option', { name: /삼성전자/ });
   await user.keyboard('{ArrowDown}{Enter}');
-  await waitFor(() => assert.equal(screen.getAllByRole('button', { name: /관심종목 삭제/ }).length, 1));
+  await screen.findByText('1/200');
   assert.equal(input.value, '');
   assert.ok(requests.some((url) => decodeURIComponent(url).includes('삼성')));
   await user.type(input, 'AAPL');
   await user.click(await screen.findByRole('option', { name: /애플/ }));
-  assert.ok(screen.getByRole('button', { name: '애플 관심종목 삭제' }));
+  assert.ok(screen.getByText('2/200'));
   await user.type(input, 'AAPL');
   await user.click(await screen.findByRole('option', { name: /애플/ }));
-  assert.equal(screen.getAllByRole('button', { name: /관심종목 삭제/ }).length, 2);
-  await user.click(screen.getByRole('button', { name: '애플 관심종목 삭제' }));
+  assert.ok(screen.getByText('2/200'));
   assert.equal(screen.queryByRole('button', { name: '애플 관심종목 삭제' }), null);
-  await user.click(screen.getByRole('button', { name: '분봉 추세' }));
-  assert.equal(screen.getByRole('button', { name: '분봉 추세' }).getAttribute('aria-pressed'), 'true');
+  assert.equal(screen.queryByRole('button', { name: '일봉' }), null);
   cleanup();
+});
+
+test('small watchlists use normal row height, minute trends, and cell-local delete buttons outside links', async () => {
+  const originalRect = dom.window.HTMLElement.prototype.getBoundingClientRect;
+  dom.window.HTMLElement.prototype.getBoundingClientRect = () => ({ width: 1600, height: 800, top: 0, left: 0, right: 1600, bottom: 800, x: 0, y: 0, toJSON() {} });
+  const requests = [];
+  globalThis.fetch = async (url) => { requests.push(url); return Response.json({ series: {}, errors: {} }); };
+  const quotes = [samsung, apple].map((item) => ({ ...item, price: 100, previousClose: 99, change: 1, changePrice: 1, asOf: '2026-09-07T15:30:00+09:00', turnover: '', marketStatus: 'CLOSE' }));
+  function Harness({ graph }) {
+    const [stocks, setStocks] = React.useState(quotes);
+    return React.createElement(Board, { market: 'KOSPI', graph, watch: true, payload: { stocks, indices: [], marketStatus: 'CLOSE', asOf: quotes[0].asOf, source: 'test' }, largeText: true, autoRefresh: false, now: Date.parse('2026-09-08T09:00:00+09:00'), provider: 'naver', onRemove: (quote) => setStocks((current) => current.filter((item) => item.code !== quote.code)) });
+  }
+  try {
+    for (const graph of [false, true]) {
+      const { container } = render(React.createElement(Harness, { graph }));
+      const button = screen.getByRole('button', { name: '삼성전자 관심종목 삭제' });
+      assert.equal(button.closest('a'), null);
+      assert.ok(button.closest(graph ? '.graph-slot' : 'tr'));
+      if (!graph) assert.ok(Number.parseFloat(button.closest('tr').style.height) <= 32);
+      else {
+        await waitFor(() => assert.ok(requests.some((url) => url.includes('kind=minutes'))));
+        assert.ok(!requests.some((url) => url.includes('kind=candles')));
+        assert.ok(!container.querySelector('.candle-area'));
+      }
+      await userEvent.setup({ document: dom.window.document }).click(button);
+      assert.equal(screen.queryByRole('button', { name: '삼성전자 관심종목 삭제' }), null);
+      assert.ok(screen.getByRole('button', { name: '애플 관심종목 삭제' }));
+      cleanup();
+    }
+  } finally { dom.window.HTMLElement.prototype.getBoundingClientRect = originalRect; cleanup(); }
 });
 
 test('compact trend has a previous-close line and no axis labels; candles use actual OHLC', () => {

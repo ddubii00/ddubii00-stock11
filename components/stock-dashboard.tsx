@@ -2,18 +2,18 @@
 /* eslint-disable jsx-a11y/no-noninteractive-tabindex -- Independently scrolling stock tables need keyboard focus for arrow-key scrolling. */
 
 import { useCallback, useEffect, useRef, useState } from 'react';
-import { ChevronLeft, ChevronRight, Expand, Pause, Play, RefreshCw, Type } from 'lucide-react';
+import { ChevronLeft, ChevronRight, Expand, Pause, Play, RefreshCw, Type, X } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table';
 import { Pagination, PaginationContent, PaginationItem } from '@/components/ui/pagination';
 import { fitBoard } from '@/lib/board-layout';
 import { sessionFor } from '@/lib/chart-model';
-import { Sparkline, Candlestick, type LiveTick } from '@/components/stock-charts';
+import { Sparkline, type LiveTick } from '@/components/stock-charts';
 import { WatchlistToolbar } from '@/components/watchlist-toolbar';
 import { restoreWatchlist, symbolKey, WATCHLIST_KEY } from '@/lib/watchlist';
 import { stockUrl } from '@/lib/stock-links';
-import type { IndexQuote, Market, MarketPayload, MinuteSeries, Quote, StockSelection, CandleSeries } from '@/lib/market-types';
+import type { IndexQuote, Market, MarketPayload, MinuteSeries, Quote, StockSelection } from '@/lib/market-types';
 
 const markets: Market[] = ['KOSPI', 'KOSDAQ', 'NASDAQ', 'SP500'];
 const marketLabel = (market: Market) => market === 'SP500' ? 'S&P500' : market;
@@ -38,19 +38,19 @@ function Change({ value }: { value: number }) {
 }
 
 function Price({ quote, market }: { quote: Quote; market: Market }) {
+  if (quote.pending) return <strong className="current-price price-flat">—</strong>;
   return <strong className={`current-price ${tone(quote.change)}`}>{isUS(market) ? '$' : ''}{formatted(quote.price, market)}</strong>;
 }
 
-function Board({ market, graph, payload, largeText, autoRefresh, error, now, provider, candle = false, watch = false }: {
+export function Board({ market, graph, payload, largeText, autoRefresh, error, now, provider, watch = false, onRemove }: {
   market: Market; graph: boolean; payload?: MarketPayload; largeText: boolean;
   autoRefresh: boolean; error?: string; now: number; provider: 'naver' | 'kis';
-  candle?: boolean; watch?: boolean;
+  watch?: boolean; onRemove?: (quote: Quote) => void;
 }) {
   const area = useRef<HTMLDivElement>(null);
   const [size, setSize] = useState({ width: 0, height: 0 });
   const [page, setPage] = useState(0);
   const [series, setSeries] = useState<Record<string, MinuteSeries>>({});
-  const [candles, setCandles] = useState<Record<string, CandleSeries>>({});
   const [chartErrors, setChartErrors] = useState<Record<string, string>>({});
   const [liveTicks, setLiveTicks] = useState<Record<string, LiveTick>>({});
   const [liveStatus, setLiveStatus] = useState<LiveStatus>({ state: 'connecting', subscribed: 0, requested: 0 });
@@ -124,12 +124,11 @@ function Board({ market, graph, payload, largeText, autoRefresh, error, now, pro
         const symbols = codes.split(','), failures: Record<string, string> = {};
         // Sequential 32-stock batches bound serverless fan-out as density grows.
         for (let offset = 0; offset < symbols.length; offset += 32) {
-        const response = await fetch(`/api/chart?symbols=${encodeURIComponent(symbols.slice(offset, offset + 32).join(','))}&kind=${candle ? 'candles' : 'minutes'}`, { signal: controller.signal });
+        const response = await fetch(`/api/chart?symbols=${encodeURIComponent(symbols.slice(offset, offset + 32).join(','))}&kind=minutes`, { signal: controller.signal });
         if (!response.ok) throw new Error('차트 조회 실패');
-        const result = await response.json() as { series: Record<string, MinuteSeries>; candles: Record<string, CandleSeries>; errors: Record<string, string> };
+        const result = await response.json() as { series: Record<string, MinuteSeries>; errors: Record<string, string> };
         if (!controller.signal.aborted) {
           setSeries((current) => ({ ...current, ...result.series }));
-          setCandles((current) => ({ ...current, ...result.candles }));
           Object.assign(failures, result.errors);
         }
         }
@@ -141,7 +140,7 @@ function Board({ market, graph, payload, largeText, autoRefresh, error, now, pro
     void update();
     const timer = autoRefresh ? window.setInterval(() => { if (!document.hidden) void update(); }, REFRESH_MS) : undefined;
     return () => { controller.abort(); if (timer) window.clearInterval(timer); };
-  }, [market, codes, autoRefresh, size.width, candle]);
+  }, [market, codes, autoRefresh, size.width]);
 
   const columns = Array.from({ length: layout.columns }, (_, column) => visible.slice(column * layout.rows, (column + 1) * layout.rows));
   const asOf = payload?.asOf ? new Date(payload.asOf).toLocaleString('ko-KR', {
@@ -153,31 +152,35 @@ function Board({ market, graph, payload, largeText, autoRefresh, error, now, pro
         <div className="graph-grid" style={{ gridTemplateColumns: `repeat(${layout.columns}, minmax(0, 1fr))`, gridTemplateRows: `repeat(${layout.rows}, ${Math.max(1, layout.rowHeight - 1)}px)` }}>
           {visible.map((quote, index) => {
             const exchange = quote.market ?? market, key = symbolKey({ market: exchange, chartCode: quote.chartCode });
-            return <a className="graph-card" key={key} href={stockUrl(quote, exchange)} target="_blank" rel="noopener noreferrer" aria-label={`${quote.name} 네이버 증권 새 탭에서 보기`}>
-              <div className="graph-identity"><strong title={quote.name}>{quote.name}</strong><span>{offset + index + 1} · {quote.code}{watch ? ` · ${candle ? '일봉' : '분봉'}` : ''}</span></div>
-              {candle ? <Candlestick series={candles[key]} previousClose={quote.previousClose} name={quote.name} /> : <Sparkline series={series[key]} tick={provider === 'kis' && quote.marketStatus === 'OPEN' && autoRefresh ? liveTicks[quote.chartCode] : undefined} name={quote.name} now={now} />}
-              <div className="graph-price"><Price quote={quote} market={exchange} /><Change value={quote.change} /></div>
+            return <div className={`graph-slot ${watch ? 'watch-slot' : ''}`} key={key}>
+              <a className="graph-card" href={stockUrl(quote, exchange)} target="_blank" rel="noopener noreferrer" aria-label={`${quote.name} 네이버 증권 새 탭에서 보기`}>
+              <div className="graph-identity"><strong title={quote.name}>{quote.name}</strong><span>{offset + index + 1} · {quote.code}{watch ? ' · 분봉' : ''}</span></div>
+              <Sparkline series={series[key]} tick={provider === 'kis' && quote.marketStatus === 'OPEN' && autoRefresh ? liveTicks[quote.chartCode] : undefined} name={quote.name} now={now} />
+              <div className="graph-price"><Price quote={quote} market={exchange} />{quote.pending ? <span className="price-flat">수신 대기</span> : <Change value={quote.change} />}</div>
               {chartErrors[key] && <span className="chart-error">{chartErrors[key]}</span>}
-            </a>;
+              </a>
+              {onRemove && <Button variant="ghost" size="icon" className="stock-remove" aria-label={`${quote.name} 관심종목 삭제`} title="관심종목 삭제" onClick={() => onRemove(quote)}><X /></Button>}
+            </div>;
           })}
         </div> :
         <div className="quote-columns" style={{ gridTemplateColumns: `repeat(${layout.columns}, minmax(0, 1fr))` }}>
           {columns.map((column, columnIndex) => <section className="quote-column" key={columnIndex} tabIndex={0} aria-label={`${market} ${columnIndex + 1}열 시세 스크롤 영역`}>
-            <Table className="quote-table">
-              <colgroup><col className="rank-col" /><col /><col className="price-col" /><col className="rate-col" /></colgroup>
-              <TableHeader><TableRow><TableHead scope="col">#</TableHead><TableHead scope="col">종목명</TableHead><TableHead scope="col">현재가</TableHead><TableHead scope="col">등락률</TableHead></TableRow></TableHeader>
+            <Table className={`quote-table ${watch ? 'watch-quote-table' : ''}`}>
+              <colgroup><col className="rank-col" /><col /><col className="price-col" /><col className="rate-col" />{onRemove && <col className="remove-col" />}</colgroup>
+              <TableHeader><TableRow><TableHead scope="col">#</TableHead><TableHead scope="col">종목명</TableHead><TableHead scope="col">현재가</TableHead><TableHead scope="col">등락률</TableHead>{onRemove && <TableHead scope="col"><span className="sr-only">삭제</span></TableHead>}</TableRow></TableHeader>
               <TableBody>{column.map((quote, index) => <TableRow key={quote.code} style={{ height: layout.rowHeight }}>
                 <TableCell className="rank">{offset + columnIndex * layout.rows + index + 1}</TableCell>
                 <TableCell className="stock-name" title={`${quote.name} (${quote.code}) · ${quote.market} ${statusLabel(quote.marketStatus)} · ${quote.asOf} · 거래대금 ${quote.turnover}`}><a href={stockUrl(quote, quote.market ?? market)} target="_blank" rel="noopener noreferrer"><strong>{quote.name}</strong></a></TableCell>
                 <TableCell><a href={stockUrl(quote, quote.market ?? market)} target="_blank" rel="noopener noreferrer" aria-label={`${quote.name} 현재가 상세 보기`}><Price quote={quote} market={quote.market ?? market} /></a></TableCell>
-                <TableCell><a href={stockUrl(quote, quote.market ?? market)} target="_blank" rel="noopener noreferrer" aria-label={`${quote.name} 등락률 상세 보기`}><Change value={quote.change} /></a></TableCell>
+                <TableCell><a href={stockUrl(quote, quote.market ?? market)} target="_blank" rel="noopener noreferrer" aria-label={`${quote.name} 등락률 상세 보기`}>{quote.pending ? <span className="price-flat">—</span> : <Change value={quote.change} />}</a></TableCell>
+                {onRemove && <TableCell className="stock-remove-cell"><Button variant="ghost" size="icon" className="stock-remove" aria-label={`${quote.name} 관심종목 삭제`} title="관심종목 삭제" onClick={() => onRemove(quote)}><X /></Button></TableCell>}
               </TableRow>)}</TableBody>
             </Table>
           </section>)}
         </div>}
     </div>
     <footer className="board-footer">
-      <p className={error ? 'connection-error' : ''}>{error ?? (payload ? `${watch ? '관심종목 · 한국/미국 현지 정규장' : `${statusLabel(payload.marketStatus)} · ${payload.marketStatus === 'OPEN' ? '정규장 현재가' : '정규장 최종가격'} · ${asOf}${isUS(market) ? ' ET' : ''}`} · ${layout.columns}열${graph ? candle ? ' · 최근 1개월 일봉 · 봉 색: 시가 대비' : ' · 실제 분봉 · 전일 기준선 · Y축 자동' : ''}` : '네이버 증권 연결 중')}
+      <p className={error ? 'connection-error' : ''}>{error ?? (payload ? `${watch ? '관심종목 · 한국/미국 현지 정규장' : `${statusLabel(payload.marketStatus)} · ${payload.marketStatus === 'OPEN' ? '정규장 현재가' : '정규장 최종가격'} · ${asOf}${isUS(market) ? ' ET' : ''}`} · ${layout.columns}열${graph ? ' · 실제 분봉 · 전일 기준선 · Y축 자동' : ''}` : '네이버 증권 연결 중')}
         {provider === 'kis' && autoRefresh && payload?.marketStatus === 'OPEN' && <span> · {liveStatus.state === 'connected' && liveStatus.subscribed > 0 ? `KIS 구독 ${liveStatus.subscribed}/${visible.length} · 미구독 30초` : 'KIS 연결 대기 · 30초 갱신'}</span>}
       </p>
       <Pagination className="board-pagination" aria-label={`${market} 종목 페이지`}><PaginationContent>
@@ -205,7 +208,6 @@ export function StockDashboard() {
   const [storageError, setStorageError] = useState('');
   const [watchQuotes, setWatchQuotes] = useState<Record<string, Quote>>({});
   const [watchError, setWatchError] = useState('');
-  const [candle, setCandle] = useState(true);
   const inFlight = useRef(false);
 
   useEffect(() => {
@@ -299,7 +301,10 @@ export function StockDashboard() {
       else await document.documentElement.requestFullscreen();
     } catch { /* Fullscreen may be unavailable in an embedded preview. */ }
   };
-  const savedQuotes = watchlist.flatMap((item) => watchQuotes[symbolKey(item)] ? [watchQuotes[symbolKey(item)]] : []);
+  // Keep unreceived stocks visible and removable, without displaying a made-up price.
+  const savedQuotes: Quote[] = watchlist.map((item) => watchQuotes[symbolKey(item)] ?? {
+    ...item, pending: true, price: 0, previousClose: 0, change: 0, changePrice: 0, turnover: '—', asOf: '',
+  });
   const watchPayload: MarketPayload = {
     stocks: savedQuotes, indices: [], marketStatus: savedQuotes.some((quote) => quote.marketStatus === 'OPEN') ? 'OPEN' : 'CLOSE',
     asOf: savedQuotes.reduce((latest, quote) => quote.asOf > latest ? quote.asOf : latest, ''), source: '네이버 증권',
@@ -325,7 +330,7 @@ export function StockDashboard() {
             <span className="index-label">{label}</span>
             <strong className={item ? tone(item.change) : ''}>{item ? item.value.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 }) : '—'}</strong>
             {item && <span className={`index-change ${tone(item.change)}`}>{item.change > 0 ? '+' : ''}{item.change.toFixed(2)}%</span>}
-            {['KOSPI', 'KOSDAQ', 'NASDAQ'].includes(label) && <Sparkline mini series={indexSeries[label]} name={label} now={now} />}
+            <Sparkline mini series={indexSeries[label]} name={label} now={now} />
           </div>;
         })}
       </div>
@@ -341,8 +346,8 @@ export function StockDashboard() {
         <Board {...view} payload={data[view.market]} largeText={largeText} autoRefresh={autoRefresh} error={errors[view.market]} now={now} provider={provider} />
       </TabsContent>)}
       {['watchlist', 'watchlist-chart'].map((value) => <TabsContent key={value} value={value} className="market-panel watch-panel">
-        <WatchlistToolbar items={watchlist} onChange={setWatchlist} chart={value.endsWith('-chart')} candle={candle} onCandleChange={setCandle} storageError={storageError} />
-        <Board market="KOSPI" graph={value.endsWith('-chart')} watch candle={value.endsWith('-chart') && candle} payload={watchPayload} largeText={largeText} autoRefresh={autoRefresh} error={watchlist.length ? watchError || (savedQuotes.length ? undefined : '관심종목 시세 수신 중…') : undefined} now={now} provider={provider} />
+        <WatchlistToolbar items={watchlist} onChange={setWatchlist} storageError={storageError} />
+        <Board market="KOSPI" graph={value.endsWith('-chart')} watch onRemove={(quote) => setWatchlist((items) => items.filter((item) => item.chartCode !== quote.chartCode))} payload={watchPayload} largeText={largeText} autoRefresh={autoRefresh} error={watchlist.length ? watchError || (savedQuotes.length ? undefined : '관심종목 시세 수신 중…') : undefined} now={now} provider={provider} />
       </TabsContent>)}
     </Tabs>
   </main>;

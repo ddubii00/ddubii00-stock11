@@ -97,3 +97,18 @@ test('all 200 stocks remain reachable and dense charts use at most 80 slots', ()
     assert.deepEqual(pages.flat(), Array.from({ length: 200 }, (_, i) => i));
   }
 });
+
+test('watchlists containing 1–3 stocks have exactly the same density as a 200-stock board', () => {
+  for (const graph of [false, true]) for (const width of [390, 810, 1200, 1600]) {
+    const standard = fitBoard(width, 800, graph, true, 200);
+    for (const total of [1, 2, 3]) assert.deepEqual(fitBoard(width, 800, graph, true, total), standard);
+  }
+});
+
+test('FX supports Korean-time pre-09:00 minute quotes without a stock-session cutoff', () => {
+  const input = { market: 'FX', code: 'FX_USDKRW', date: '20260908', previousClose: 1347, asOf: '', session: { start: 505, end: 530, timeZone: 'Asia/Seoul', ticks: [] }, points: [{ minute: 505, price: 1342.6 }, { minute: 521, price: 1345 }, { minute: 530, price: 1346 }] };
+  const model = makeChartModel(input, new Date('2026-09-08T08:41:00+09:00'));
+  assert.deepEqual(model.points.map((point) => point.minute), [505, 521]);
+  assert.equal(model.x(505), 0);
+  assert.ok(model.y(1347) > 0 && model.y(1347) < 1);
+});

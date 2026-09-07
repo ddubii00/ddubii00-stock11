@@ -21,10 +21,11 @@ export function Sparkline({ series: snapshot, tick, name, now, mini = false }: {
   const y = (price: number) => top + (model?.y(price) ?? .5) * (bottom - top);
   const baseline = series && series.previousClose > 0 ? y(series.previousClose) : null;
   const path = model?.points.map((point, index) => `${index ? 'L' : 'M'}${x(point.minute).toFixed(2)},${y(point.price).toFixed(2)}`).join(' ') ?? '';
-  const detail = `${name} · ${series?.date ?? ''} · 전일 ${series?.previousClose ?? '미수신'} · ${model?.last ? `${minuteLabel(model.last.minute)}까지 실제 분봉` : '분봉 미수신'}`;
+  const fx = series?.market === 'FX';
+  const detail = `${name} · ${series?.date ?? ''} · 전일 ${series?.previousClose ?? '미수신'} · ${model?.last ? `${minuteLabel(model.last.minute)}까지 ${fx ? '실제 고시환율 · 분 단위' : '실제 분봉'}` : '분봉 미수신'}`;
   return <div className={`chart-area ${mini ? 'mini-chart' : ''}`} title={detail}>
     <svg className="sparkline" viewBox={`0 0 ${width} ${height}`} preserveAspectRatio="none" role="img" aria-label={detail}>
-      <title>{detail} · 정규장 전체 시간축 · 가격 범위 자동 조절</title>
+      <title>{detail} · {fx ? '당일 수신 구간' : '정규장 전체 시간축'} · 가격 범위 자동 조절</title>
       {baseline !== null && <>
         <line x1={left} x2={right} y1={baseline} y2={baseline} className="spark-baseline" vectorEffect="non-scaling-stroke" />
         <defs>

@@ -13,6 +13,7 @@ export type Quote = {
   asOf: string;
   market?: Exclude<Market, 'SP500'>;
   marketStatus?: string;
+  pending?: boolean;
 };
 
 export type IndexQuote = {
@@ -35,7 +36,8 @@ export type Candle = { date: string; open: number; high: number; low: number; cl
 export type CandleSeries = { code: string; candles: Candle[]; interval: 'day' };
 export type MinuteSeries = {
   code: string;
-  market: Market;
+  market: Market | 'FX';
+  session?: { start: number; end: number; timeZone: string; ticks: number[] };
   date: string;
   previousClose: number;
   points: MinutePoint[];

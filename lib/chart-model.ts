@@ -1,6 +1,7 @@
 import type { Market, MinuteSeries } from './market-types';
 
-export function sessionFor(market: Market) {
+export function sessionFor(market: Market | 'FX') {
+  if (market === 'FX') return { start: 0, end: 1440, timeZone: 'Asia/Seoul', ticks: [] };
   return market !== 'KOSPI' && market !== 'KOSDAQ'
     ? { start: 570, end: 960, timeZone: 'America/New_York', ticks: [570, 720, 840, 960] }
     : { start: 540, end: 930, timeZone: 'Asia/Seoul', ticks: [540, 660, 780, 930] };
@@ -24,7 +25,7 @@ export function minuteLabel(minute: number) {
 
 // Always use the entire regular session for X, not the number of received points.
 export function makeChartModel(series: MinuteSeries, now = new Date()) {
-  const session = sessionFor(series.market);
+  const session = series.session ?? sessionFor(series.market);
   const clock = clockInZone(now, session.timeZone);
   const cutoff = series.date < clock.date ? session.end
     : series.date === clock.date ? Math.min(clock.minute, session.end) : session.start - 1;

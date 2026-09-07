@@ -1,14 +1,11 @@
 'use client';
 import { useEffect, useState } from 'react';
-import { X } from 'lucide-react';
-import { Button } from '@/components/ui/button';
 import { Combobox, ComboboxInput, ComboboxContent, ComboboxList, ComboboxItem } from '@/components/ui/combobox';
 import { symbolKey } from '@/lib/watchlist';
 import type { StockSelection } from '@/lib/market-types';
 
-export function WatchlistToolbar({ items, onChange, chart, candle, onCandleChange, storageError }: {
-  items: StockSelection[]; onChange: (items: StockSelection[]) => void; chart: boolean;
-  candle: boolean; onCandleChange: (value: boolean) => void; storageError: string;
+export function WatchlistToolbar({ items, onChange, storageError }: {
+  items: StockSelection[]; onChange: (items: StockSelection[]) => void; storageError: string;
 }) {
   const [query, setQuery] = useState('');
   const [results, setResults] = useState<StockSelection[]>([]);
@@ -51,17 +48,8 @@ export function WatchlistToolbar({ items, onChange, chart, candle, onCandleChang
           {!results.length && <p className="search-message">{message}</p>}
         </ComboboxContent>
       </Combobox>
-      {chart && <div className="candle-switch" aria-label="관심종목 차트 종류">
-        <Button size="sm" variant={candle ? 'default' : 'ghost'} aria-pressed={candle} onClick={() => onCandleChange(true)}>일봉</Button>
-        <Button size="sm" variant={!candle ? 'default' : 'ghost'} aria-pressed={!candle} onClick={() => onCandleChange(false)}>분봉 추세</Button>
-      </div>}
       <span className="watch-count">{items.length}/200</span>
       <output className="watch-message" aria-live="polite">{storageError || message}</output>
     </div>
-    {items.length > 0 && <div className="watch-chips" aria-label="저장된 관심종목">
-      {items.map((item) => <span className="watch-chip" key={symbolKey(item)}>
-        {item.name}<Button variant="ghost" size="icon" aria-label={`${item.name} 관심종목 삭제`} onClick={() => onChange(items.filter((value) => symbolKey(value) !== symbolKey(item)))}><X /></Button>
-      </span>)}
-    </div>}
   </div>;
 }

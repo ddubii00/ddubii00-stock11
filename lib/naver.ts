@@ -109,6 +109,29 @@ export async function searchStocks(query: string): Promise<StockSelection[]> {
     .map((item) => ({ code: item.code, chartCode: item.reutersCode, name: item.name, market: item.typeCode as StockSelection['market'] }));
 }
 
+// Same bank-quoted USD/KRW series as the header. Keep only the last real quote
+// in each minute; missing minutes are not fabricated or forward-filled.
+export async function readFxMinutes(): Promise<MinuteSeries> {
+  const data = await naverJson<{ result: {
+    tradeBaseAt: string; localDateTimeNow: string; lastClosePrice: number;
+    priceInfos: { localDateTime: string; currentPrice: number }[];
+  } }>('https://m.stock.naver.com/front-api/chart/pricesByPeriod?reutersCode=FX_USDKRW&chartInfoType=exchange&scriptChartType=day&category=exchange', 15000);
+  const result = data.result;
+  if (!result || !/^\d{8}$/.test(result.tradeBaseAt) || !Array.isArray(result.priceInfos)) throw new Error('환율 차트 수신 실패');
+  const perMinute = new Map<number, { minute: number; price: number }>();
+  for (const point of [...result.priceInfos].sort((a, b) => a.localDateTime.localeCompare(b.localDateTime))) {
+    if (!/^\d{14}$/.test(point.localDateTime) || !point.localDateTime.startsWith(result.tradeBaseAt)
+      || point.localDateTime > result.localDateTimeNow || !Number.isFinite(point.currentPrice) || point.currentPrice <= 0) continue;
+    const minute = Number(point.localDateTime.slice(8, 10)) * 60 + Number(point.localDateTime.slice(10, 12));
+    if (minute < 1440) perMinute.set(minute, { minute, price: point.currentPrice });
+  }
+  const points = [...perMinute.values()], start = points[0]?.minute ?? 0;
+  return { market: 'FX', code: 'FX_USDKRW', date: result.tradeBaseAt, previousClose: result.lastClosePrice,
+    asOf: result.localDateTimeNow, points,
+    session: { start, end: Math.max(start + 1, points.at(-1)?.minute ?? start), timeZone: 'Asia/Seoul', ticks: [] },
+  };
+}
+
 export async function readQuote(market: Market, code: string): Promise<Quote> {
   const root = domestic(market) ? 'https://m.stock.naver.com/api' : 'https://api.stock.naver.com';
   const stock = await naverJson<Stock>(`${root}/stock/${encodeURIComponent(code)}/basic`);
