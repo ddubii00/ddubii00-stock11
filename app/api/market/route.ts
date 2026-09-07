@@ -1,5 +1,9 @@
 import { readIndices, readStocks } from '@/lib/naver';
 
+export const dynamic = 'force-dynamic';
+export const runtime = 'nodejs';
+export const maxDuration = 30;
+
 export async function GET(request: Request) {
   const url = new URL(request.url);
   const market = url.searchParams.get('market')?.toUpperCase() ?? 'KOSPI';

@@ -1,0 +1,36 @@
+name: stock11
+
+services:
+  app:
+    build:
+      context: .
+      target: app
+    init: true
+    restart: unless-stopped
+    ports:
+      - "127.0.0.1:${STOCK11_PORT:-3011}:3000"
+    environment:
+      STOCK11_DATA_PROVIDER: kis
+      KIS_RELAY_URL: http://kis-relay:8091
+    depends_on:
+      kis-relay:
+        condition: service_healthy
+    security_opt:
+      - no-new-privileges:true
+
+  kis-relay:
+    build:
+      context: .
+      target: kis-relay
+    init: true
+    restart: unless-stopped
+    environment:
+      KIS_APP_KEY: ${KIS_APP_KEY:?Set KIS_APP_KEY in .env.oracle}
+      KIS_APP_SECRET: ${KIS_APP_SECRET:?Set KIS_APP_SECRET in .env.oracle}
+      KIS_MAX_SUBSCRIPTIONS: ${KIS_MAX_SUBSCRIPTIONS:-40}
+      KIS_RELAY_HOST: 0.0.0.0
+      KIS_RELAY_PORT: 8091
+    # No published port: only the app container can reach this service.
+    read_only: true
+    security_opt:
+      - no-new-privileges:true

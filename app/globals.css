@@ -34,7 +34,7 @@ button { font-family: inherit; }
 button:focus-visible, [role=tab]:focus-visible, a:focus-visible { outline: 2px solid #14684f; outline-offset: -2px; }
 a { color: inherit; text-decoration: none; }
 .terminal-shell { height: 100dvh; min-height: 0; display: flex; flex-direction: column; padding: 0 12px; overflow: hidden; }
-.terminal-header { flex: 0 0 44px; display: flex; align-items: center; gap: 8px; padding: 0 12px; margin: 0 -12px; border-bottom: 1px solid var(--border); background: #fff; }
+.terminal-header { position: sticky; top: 0; z-index: 40; flex: 0 0 44px; display: flex; align-items: center; gap: 8px; padding: 0 12px; margin: 0 -12px; border-bottom: 1px solid var(--border); background: #fff; }
 .brand-lockup { grid-area: brand; display: flex; align-items: center; gap: 3px; margin: 0; flex: 0 0 auto; font-size: 14px; font-weight: 850; letter-spacing: -.6px; color: #184f3c; }
 .brand-lockup > span { display: inline-flex; align-items: center; justify-content: center; width: 22px; height: 25px; border-radius: 4px; color: white; background: #14684f; font-size: 16px; }
 .session-badges { grid-area: sessions; flex: 0 0 auto; display: flex; flex-direction: column; gap: 1px; }
@@ -68,15 +68,24 @@ a { color: inherit; text-decoration: none; }
 .board-viewport { flex: 1; min-height: 0; width: 100%; overflow: hidden; border: 1px solid #d2ddd6; border-radius: 7px; background: white; }
 .board-empty { display: flex; align-items: center; justify-content: center; height: 100%; min-height: 0; color: #687e70; font-size: 16px; }
 .quote-columns { display: grid; height: 100%; min-height: 0; }
-.quote-column { min-width: 0; overflow: hidden; border-right: 2px solid #d4dfd8; }
+.quote-column { min-width: 0; min-height: 0; overflow: auto; overscroll-behavior: contain; scrollbar-width: thin; scroll-padding-top: 25px; border-right: 2px solid #d4dfd8; }
 .quote-column:last-child { border: 0; }
-.quote-column [data-slot=table-container] { height: 100%; overflow: hidden; }
-.quote-table { table-layout: fixed; border-collapse: collapse; width: 100%; }
-.quote-table .rank-col { width: 26px; }
+/* Only the column scrolls: an intermediate overflow container breaks sticky cells. */
+.quote-column [data-slot=table-container] { overflow: visible; }
+.quote-column:focus-visible { outline: 2px solid #14684f; outline-offset: -2px; }
+.quote-table { --rank-width: 26px; table-layout: fixed; border-collapse: separate; border-spacing: 0; width: 100%; min-width: 340px; }
+.quote-table .rank-col { width: var(--rank-width); }
 .quote-table .price-col { width: 116px; }
 .quote-table .rate-col { width: 103px; }
 .quote-table thead { height: 25px; background: #eaf0ec; }
 .quote-table th { height: 25px; padding: 0 6px; color: #597160; font-size: 12px; font-weight: 600; }
+.quote-table thead th { position: sticky; top: 0; z-index: 3; background: #eaf0ec; box-shadow: inset 0 -1px #d2ddd6; }
+.quote-table th:first-child, .quote-table td.rank { position: sticky; left: 0; }
+.quote-table th:nth-child(2), .quote-table td.stock-name { position: sticky; left: var(--rank-width); }
+.quote-table thead th:nth-child(-n+2) { z-index: 4; }
+.quote-table td.rank, .quote-table td.stock-name { z-index: 2; background: inherit; }
+.quote-table td.stock-name { box-shadow: 1px 0 #e1e8e3; }
+.quote-table tbody tr { background: #fff; }
 .quote-table th:first-child { padding: 0; text-align: center; }
 .quote-table td { padding: 0 6px; border-bottom: 1px solid #e7ede9; white-space: nowrap; line-height: 1.12; }
 .quote-table td a { display: block; padding-block: 2px; }
@@ -156,7 +165,7 @@ a { color: inherit; text-decoration: none; }
   .index-change { grid-column: 1; justify-self: start; font-size: 11px; }
   .market-tab-list { width: 100%; height: 53px !important; display: grid; grid-template-columns: repeat(3, 1fr); }
   .market-tab-list button { height: 24px; font-size: 12px; }
-  .quote-table .rank-col { width: 23px; }
+  .quote-table { --rank-width: 23px; }
   .quote-table .price-col { width: 111px; }
   .quote-table .rate-col { width: 97px; }
   .quote-table td, .quote-table th { padding-inline: 5px; }

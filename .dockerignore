@@ -1,0 +1,14 @@
+node_modules
+.next
+.vinext
+.wrangler
+dist
+.git
+.env*
+.codex
+.agents
+*.log
+*.tsbuildinfo
+coverage
+outputs
+work

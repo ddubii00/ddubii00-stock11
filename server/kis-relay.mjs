@@ -4,6 +4,8 @@ import { parseTrades, subscription } from './kis-protocol.mjs';
 const appKey = process.env.KIS_APP_KEY;
 const appSecret = process.env.KIS_APP_SECRET;
 const port = Number(process.env.KIS_RELAY_PORT || 8091);
+// Bind to loopback normally; Docker opts into its unexposed private network.
+const host = process.env.KIS_RELAY_HOST === '0.0.0.0' ? '0.0.0.0' : '127.0.0.1';
 const limit = Math.max(1, Math.min(40, Number(process.env.KIS_MAX_SUBSCRIPTIONS) || 40));
 const clients = new Set();
 const sent = new Map();
@@ -123,7 +125,7 @@ const server = createServer((request, response) => {
   const keepalive = setInterval(() => response.write(': keepalive\n\n'), 15_000);
   response.on('close', () => { clearInterval(keepalive); clients.delete(client); });
 });
-server.listen(port, '127.0.0.1', () => console.info(`Stock11 quote relay: http://127.0.0.1:${port} (${state})`));
+server.listen(port, host, () => console.info(`Stock11 quote relay: http://${host}:${server.address().port} (${state})`));
 function shutdown() { clearInterval(reconcile); for (const client of clients) client.response.end(); socket?.close(); server.close(); }
 process.on('SIGINT', shutdown);
 process.on('SIGTERM', shutdown);

@@ -185,10 +185,10 @@ function Board({ market, graph, payload, largeText, autoRefresh, error, now, pro
           </a>)}
         </div> :
         <div className="quote-columns" style={{ gridTemplateColumns: `repeat(${layout.columns}, minmax(0, 1fr))` }}>
-          {columns.map((column, columnIndex) => <div className="quote-column" key={columnIndex}>
+          {columns.map((column, columnIndex) => <section className="quote-column" key={columnIndex} tabIndex={0} aria-label={`${market} ${columnIndex + 1}열 시세 스크롤 영역`}>
             <Table className="quote-table">
               <colgroup><col className="rank-col" /><col /><col className="price-col" /><col className="rate-col" /></colgroup>
-              <TableHeader><TableRow><TableHead>#</TableHead><TableHead>종목명</TableHead><TableHead>현재가</TableHead><TableHead>등락률</TableHead></TableRow></TableHeader>
+              <TableHeader><TableRow><TableHead scope="col">#</TableHead><TableHead scope="col">종목명</TableHead><TableHead scope="col">현재가</TableHead><TableHead scope="col">등락률</TableHead></TableRow></TableHeader>
               <TableBody>{column.map((quote, index) => <TableRow key={quote.code} style={{ height: layout.rowHeight }}>
                 <TableCell className="rank">{offset + columnIndex * layout.rows + index + 1}</TableCell>
                 <TableCell className="stock-name" title={`${quote.name} (${quote.code}) · 거래대금 ${quote.turnover}`}><a href={stockUrl(quote, market)} target="_blank" rel="noopener noreferrer"><strong>{quote.name}</strong></a></TableCell>
@@ -196,7 +196,7 @@ function Board({ market, graph, payload, largeText, autoRefresh, error, now, pro
                 <TableCell><a href={stockUrl(quote, market)} target="_blank" rel="noopener noreferrer" aria-label={`${quote.name} 등락률 상세 보기`}><Change value={quote.change} /></a></TableCell>
               </TableRow>)}</TableBody>
             </Table>
-          </div>)}
+          </section>)}
         </div>}
     </div>
     <footer className="board-footer">
