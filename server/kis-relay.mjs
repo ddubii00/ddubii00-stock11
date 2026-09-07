@@ -113,7 +113,7 @@ const server = createServer((request, response) => {
   }
   const market = url.searchParams.get('market');
   const codes = [...new Set((url.searchParams.get('codes') || '').split(',').filter(Boolean))];
-  if (request.method !== 'GET' || url.pathname !== '/stream' || !['KOSPI', 'KOSDAQ', 'NASDAQ'].includes(market) || !codes.length || codes.length > 100 || codes.some((code) => !/^[A-Za-z0-9.^-]{1,24}$/.test(code))) {
+  if (request.method !== 'GET' || url.pathname !== '/stream' || !['KOSPI', 'KOSDAQ', 'NASDAQ', 'NYSE', 'AMEX'].includes(market) || !codes.length || codes.length > 200 || codes.some((code) => !/^[A-Za-z0-9.^-]{1,24}$/.test(code))) {
     response.writeHead(400); response.end('Invalid market or symbols'); return;
   }
   if (clients.size >= 20) { response.writeHead(503); response.end('Connection limit'); return; }

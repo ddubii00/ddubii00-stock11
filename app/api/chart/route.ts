@@ -1,4 +1,5 @@
-import { readMinutes } from '@/lib/naver';
+import { readMinutes, readCandles } from '@/lib/naver';
+import { parseSymbols, symbolKey } from '@/lib/watchlist';
 
 export const dynamic = 'force-dynamic';
 export const runtime = 'nodejs';
@@ -7,20 +8,23 @@ export const maxDuration = 60;
 export async function GET(request: Request) {
   const params = new URL(request.url).searchParams;
   const market = params.get('market');
-  const codes = [...new Set((params.get('codes') ?? '').split(',').filter(Boolean))];
-  if ((market !== 'KOSPI' && market !== 'KOSDAQ' && market !== 'NASDAQ') || !codes.length || codes.length > 32
-    || codes.some((code) => !/^[A-Za-z0-9.^-]{1,24}$/.test(code))) {
+  const mixed = params.has('symbols');
+  const items = parseSymbols(mixed ? params.get('symbols')! : (params.get('codes') ?? '').split(',').map((code) => `${market}:${code}`).join(','));
+  if (!items) {
     return Response.json({ error: '시장 또는 종목코드가 올바르지 않습니다.' }, { status: 400 });
   }
   const series: Record<string, Awaited<ReturnType<typeof readMinutes>>> = {};
   const errors: Record<string, string> = {};
+  const candles: Record<string, Awaited<ReturnType<typeof readCandles>>> = {};
   let cursor = 0;
-  await Promise.all(Array.from({ length: Math.min(4, codes.length) }, async () => {
-    while (cursor < codes.length) {
-      const code = codes[cursor++];
-      try { series[code] = await readMinutes(market, code); }
-      catch { errors[code] = '분봉 수신 대기'; }
+  await Promise.all(Array.from({ length: Math.min(4, items.length) }, async () => {
+    while (cursor < items.length) {
+      const item = items[cursor++], key = mixed ? symbolKey(item) : item.chartCode;
+      try {
+        if (params.get('kind') === 'candles') candles[key] = await readCandles(item.market, item.chartCode);
+        else series[key] = await readMinutes(item.market, item.chartCode);
+      } catch { errors[key] = '차트 수신 대기'; }
     }
   }));
-  return Response.json({ series, errors }, { headers: { 'Cache-Control': 'no-store' } });
+  return Response.json({ series, candles, errors }, { headers: { 'Cache-Control': 'no-store' } });
 }

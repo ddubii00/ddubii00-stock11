@@ -1,4 +1,4 @@
-import type { Market, MinuteSeries, MarketPayload, IndexQuote } from './market-types';
+import type { Market, MinuteSeries, MarketPayload, IndexQuote, Quote, StockSelection, CandleSeries } from './market-types';
 
 const headers = { Accept: 'application/json', Referer: 'https://m.stock.naver.com/', 'User-Agent': 'Mozilla/5.0' };
 const cache = new Map<string, { expires: number; value: unknown }>();
@@ -28,35 +28,44 @@ type Stock = {
   stockName: string; closePrice: string; compareToPreviousClosePrice: string; fluctuationsRatio: string;
   accumulatedTradingValueKrwHangeul?: string; accumulatedTradingValue?: string;
   marketStatus: string; localTradedAt: string;
+  stockExchangeType?: { name: string };
 };
 type Basic = { closePrice: string; fluctuationsRatio: string; localTradedAt: string };
 
+const domestic = (market: Market) => market === 'KOSPI' || market === 'KOSDAQ';
+function exchange(stock: Stock, fallback: Market): StockSelection['market'] {
+  const name = stock.stockExchangeType?.name;
+  return name === 'KOSPI' || name === 'KOSDAQ' || name === 'NASDAQ' || name === 'NYSE' || name === 'AMEX' ? name : fallback === 'SP500' ? 'NYSE' : fallback;
+}
+function quoteFrom(stock: Stock, fallback: Market): Quote {
+  const market = exchange(stock, fallback);
+  const price = number(stock.closePrice), changePrice = number(stock.compareToPreviousClosePrice), change = number(stock.fluctuationsRatio);
+  if (![price, changePrice, change].every(Number.isFinite) || price <= 0) throw new Error('유효한 현재가가 없습니다.');
+  return {
+    code: stock.symbolCode ?? stock.itemCode ?? stock.reutersCode ?? '', chartCode: stock.itemCode ?? stock.reutersCode ?? '',
+    name: stock.stockName, market, marketStatus: stock.marketStatus, price, changePrice, change, previousClose: price - changePrice,
+    turnover: domestic(market) ? stock.accumulatedTradingValueKrwHangeul ?? '—' : stock.accumulatedTradingValue ?? '—', asOf: stock.localTradedAt,
+  };
+}
+
 export async function readStocks(market: Market): Promise<Omit<MarketPayload, 'indices'>> {
-  const url = (page: number) => market === 'NASDAQ'
-    ? `https://api.stock.naver.com/stock/exchange/NASDAQ/marketValue?page=${page}&pageSize=100`
+  const url = (page: number) => market === 'SP500'
+    ? `https://api.stock.naver.com/index/.INX/stocks?page=${page}&pageSize=100`
+    : !domestic(market)
+    ? `https://api.stock.naver.com/stock/exchange/${market}/marketValue?page=${page}&pageSize=100`
     : `https://m.stock.naver.com/api/stocks/marketValue/${market}?page=${page}&pageSize=100`;
-  const first = await naverJson<{ stocks: Stock[] }>(url(1));
-  let stocks = (first.stocks ?? []).filter((stock) => stock.stockEndType === 'stock');
-  for (let page = 2; stocks.length < 100 && page <= 3; page++) {
-    const more = await naverJson<{ stocks: Stock[] }>(url(page));
-    if (!more.stocks?.length) break;
-    stocks.push(...more.stocks.filter((stock) => stock.stockEndType === 'stock'));
+  let stocks: Stock[] = [];
+  for (let page = 1; stocks.length < 200 && page <= 4; page++) {
+    const data = await naverJson<{ stocks: Stock[] } | Stock[]>(url(page));
+    const more = Array.isArray(data) ? data : data.stocks;
+    if (!more?.length) break;
+    stocks = [...new Map([...stocks, ...more.filter((stock) => stock.stockEndType === 'stock')].map((stock) => [stock.itemCode ?? stock.reutersCode, stock])).values()];
   }
-  stocks = [...new Map(stocks.map((stock) => [stock.itemCode ?? stock.reutersCode, stock])).values()].slice(0, 100);
+  stocks = stocks.slice(0, 200);
   if (!stocks.length) throw new Error('종목 데이터를 받지 못했습니다.');
   return {
     // closePrice is the regular-session value. Do not use overMarketPriceInfo (NXT/after-hours).
-    stocks: stocks.map((stock) => ({
-      code: stock.symbolCode ?? stock.itemCode ?? stock.reutersCode ?? '',
-      chartCode: stock.itemCode ?? stock.reutersCode ?? '',
-      name: stock.stockName,
-      price: number(stock.closePrice),
-      previousClose: number(stock.closePrice) - number(stock.compareToPreviousClosePrice),
-      change: number(stock.fluctuationsRatio),
-      changePrice: number(stock.compareToPreviousClosePrice),
-      turnover: market === 'NASDAQ' ? stock.accumulatedTradingValue ?? '—' : stock.accumulatedTradingValueKrwHangeul ?? '—',
-      asOf: stock.localTradedAt,
-    })),
+    stocks: stocks.map((stock) => quoteFrom(stock, market)),
     marketStatus: stocks[0].marketStatus,
     asOf: stocks.reduce((latest, stock) => stock.localTradedAt > latest ? stock.localTradedAt : latest, stocks[0].localTradedAt),
     source: '네이버 증권',
@@ -74,15 +83,15 @@ export async function readIndices(): Promise<IndexQuote[]> {
   return jobs.flatMap((job) => job.status === 'fulfilled' ? job.value : []);
 }
 
-export async function readMinutes(market: Market, code: string): Promise<MinuteSeries> {
-  const region = market === 'NASDAQ' ? 'foreign' : 'domestic';
+export async function readMinutes(market: Market, code: string, index = false): Promise<MinuteSeries> {
+  const region = domestic(market) ? 'domestic' : 'foreign';
   const data = await naverJson<{
     tradeBaseAt: string; lastClosePrice: number; localDateTimeNow: string;
     priceInfos: { localDateTime: string; currentPrice: number }[];
-  }>(`https://api.stock.naver.com/chart/${region}/item/${encodeURIComponent(code)}?periodType=day`, 15000);
+  }>(`https://api.stock.naver.com/chart/${region}/${index ? 'index' : 'item'}/${encodeURIComponent(code)}?periodType=day`, 15000);
   if (!data.tradeBaseAt || !Array.isArray(data.priceInfos)) throw new Error('분봉 데이터를 받지 못했습니다.');
-  const start = market === 'NASDAQ' ? 570 : 540;
-  const end = market === 'NASDAQ' ? 960 : 930;
+  const start = domestic(market) ? 540 : 570;
+  const end = domestic(market) ? 930 : 960;
   return {
     market, code, date: data.tradeBaseAt, previousClose: data.lastClosePrice, asOf: data.localDateTimeNow,
     points: data.priceInfos.filter((item) => item.localDateTime.startsWith(data.tradeBaseAt)
@@ -91,4 +100,31 @@ export async function readMinutes(market: Market, code: string): Promise<MinuteS
         price: item.currentPrice,
       })).filter((point) => point.minute >= start && point.minute <= end),
   };
+}
+
+export async function searchStocks(query: string): Promise<StockSelection[]> {
+  const data = await naverJson<{ items?: { code: string; reutersCode: string; name: string; typeCode: string; nationCode: string; category: string; url: string }[] }>(`https://ac.stock.naver.com/ac?q=${encodeURIComponent(query)}&target=stock&st=111`, 60_000);
+  return (data.items ?? []).filter((item) => ['KOR', 'USA'].includes(item.nationCode) && item.category === 'stock'
+    && ['KOSPI', 'KOSDAQ', 'NASDAQ', 'NYSE', 'AMEX'].includes(item.typeCode) && !item.url.includes('/etf/'))
+    .map((item) => ({ code: item.code, chartCode: item.reutersCode, name: item.name, market: item.typeCode as StockSelection['market'] }));
+}
+
+export async function readQuote(market: Market, code: string): Promise<Quote> {
+  const root = domestic(market) ? 'https://m.stock.naver.com/api' : 'https://api.stock.naver.com';
+  const stock = await naverJson<Stock>(`${root}/stock/${encodeURIComponent(code)}/basic`);
+  if (stock.stockEndType !== 'stock') throw new Error('주식 종목이 아닙니다.');
+  return quoteFrom(stock, market);
+}
+
+// Provider's genuine daily OHLC. Do not manufacture US minute candles from closes.
+export async function readCandles(market: Market, code: string): Promise<CandleSeries> {
+  const region = domestic(market) ? 'domestic' : 'foreign';
+  const data = await naverJson<{ priceInfos: { localDate: string; openPrice: number; highPrice: number; lowPrice: number; closePrice: number }[] }>(`https://api.stock.naver.com/chart/${region}/item/${encodeURIComponent(code)}?periodType=month`, 15_000);
+  if (!Array.isArray(data.priceInfos)) throw new Error('봉 데이터가 없습니다.');
+  const candles = data.priceInfos.filter((bar) => /^\d{8}$/.test(bar.localDate)
+    && [bar.openPrice, bar.highPrice, bar.lowPrice, bar.closePrice].every((value) => Number.isFinite(value) && value > 0)
+    && bar.highPrice >= Math.max(bar.openPrice, bar.closePrice) && bar.lowPrice <= Math.min(bar.openPrice, bar.closePrice))
+    .map((bar) => ({ date: bar.localDate, open: bar.openPrice, high: bar.highPrice, low: bar.lowPrice, close: bar.closePrice })).sort((a, b) => a.date.localeCompare(b.date));
+  if (!candles.length) throw new Error('봉 데이터가 없습니다.');
+  return { code, interval: 'day', candles };
 }

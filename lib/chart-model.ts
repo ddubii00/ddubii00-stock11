@@ -1,7 +1,7 @@
 import type { Market, MinuteSeries } from './market-types';
 
 export function sessionFor(market: Market) {
-  return market === 'NASDAQ'
+  return market !== 'KOSPI' && market !== 'KOSDAQ'
     ? { start: 570, end: 960, timeZone: 'America/New_York', ticks: [570, 720, 840, 960] }
     : { start: 540, end: 930, timeZone: 'Asia/Seoul', ticks: [540, 660, 780, 930] };
 }
@@ -38,7 +38,7 @@ export function makeChartModel(series: MinuteSeries, now = new Date()) {
   if (!values.length) values.push(1);
   const minimum = Math.min(...values);
   const maximum = Math.max(...values);
-  const smallestSpan = series.market === 'NASDAQ' ? 0.02 : 2;
+  const smallestSpan = series.market !== 'KOSPI' && series.market !== 'KOSDAQ' ? 0.02 : 2;
   const span = Math.max(maximum - minimum, smallestSpan);
   const pad = span * 0.1;
   const yMin = maximum === minimum ? minimum - span / 2 - pad : minimum - pad;

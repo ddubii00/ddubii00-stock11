@@ -3,6 +3,11 @@ export function subscription(market, code) {
   if (market === 'NASDAQ' && /^[A-Z0-9-]{1,12}\.O$/.test(code)) {
     return { id: `HDFSCNT0:DNAS${code.slice(0, -2)}`, trId: 'HDFSCNT0', key: `DNAS${code.slice(0, -2)}`, code };
   }
+  if (['NYSE', 'AMEX'].includes(market) && /^[A-Z0-9-]{1,12}(\.[NK])?$/.test(code)) {
+    const symbol = code.replace(/\.[NK]$/, '');
+    const key = `D${market === 'NYSE' ? 'NYS' : 'AMS'}${symbol}`;
+    return { id: `HDFSCNT0:${key}`, trId: 'HDFSCNT0', key, code };
+  }
   if (['KOSPI', 'KOSDAQ'].includes(market) && /^[A-Za-z0-9]{6}$/.test(code)) {
     return { id: `H0STCNT0:${code}`, trId: 'H0STCNT0', key: code, code };
   }

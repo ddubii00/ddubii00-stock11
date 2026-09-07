@@ -73,11 +73,12 @@ test('adaptive price boards fit their panel without scrolling or skipped stocks'
   }
 });
 
-test('wide displays show all 100 quotes and about 30 graphs', () => {
-  assert.equal(fitBoard(1896, 1000, false, true).capacity, 100);
+test('wide displays show 100+ quotes and 40–52 compact charts, without shrinking prices', () => {
+  assert.equal(fitBoard(1896, 1000, false, true).capacity, 128);
   assert.equal(fitBoard(1576, 800, false, true).capacity, 100);
-  assert.equal(fitBoard(1896, 1000, true, true).capacity, 32);
-  assert.equal(fitBoard(1416, 800, true, true).capacity, 28);
+  assert.equal(fitBoard(1896, 1000, true, true).capacity, 52);
+  assert.equal(fitBoard(1416, 800, true, true).capacity, 44);
+  assert.ok(fitBoard(1896, 1000, true, true).rowHeight >= 72);
 });
 
 test('iPad portrait uses two columns and landscape uses three', () => {
@@ -87,6 +88,12 @@ test('iPad portrait uses two columns and landscape uses three', () => {
   }
 });
 
-test('graph requests stay within the 32-symbol endpoint limit', () => {
-  for (const width of [500, 1000, 1800]) assert.ok(fitBoard(width, 4000, true, true).capacity <= 32);
+test('all 200 stocks remain reachable and dense charts use at most 80 slots', () => {
+  for (const graph of [true, false]) for (const width of [500, 1000, 1800]) {
+    const layout = fitBoard(width, 1000, graph, true, 200);
+    if (graph) assert.ok(layout.capacity <= 80);
+    const pages = Array.from({ length: Math.ceil(200 / layout.capacity) }, (_, page) =>
+      Array.from({ length: Math.min(layout.capacity, 200 - page * layout.capacity) }, (_, index) => page * layout.capacity + index));
+    assert.deepEqual(pages.flat(), Array.from({ length: 200 }, (_, i) => i));
+  }
 });

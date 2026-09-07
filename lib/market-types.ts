@@ -1,4 +1,5 @@
-export type Market = 'KOSPI' | 'KOSDAQ' | 'NASDAQ';
+export type Market = 'KOSPI' | 'KOSDAQ' | 'NASDAQ' | 'NYSE' | 'AMEX' | 'SP500';
+export type StockSelection = { code: string; chartCode: string; name: string; market: Exclude<Market, 'SP500'> };
 
 export type Quote = {
   code: string;
@@ -10,6 +11,8 @@ export type Quote = {
   changePrice: number;
   turnover: string;
   asOf: string;
+  market?: Exclude<Market, 'SP500'>;
+  marketStatus?: string;
 };
 
 export type IndexQuote = {
@@ -28,6 +31,8 @@ export type MarketPayload = {
 };
 
 export type MinutePoint = { minute: number; price: number };
+export type Candle = { date: string; open: number; high: number; low: number; close: number };
+export type CandleSeries = { code: string; candles: Candle[]; interval: 'day' };
 export type MinuteSeries = {
   code: string;
   market: Market;

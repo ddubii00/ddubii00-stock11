@@ -8,9 +8,12 @@ const domestic = (time = '110000', sign = '2') => {
   Object.assign(row, { 0: '005930', 1: time, 2: '10100', 3: sign, 4: '100', 5: '1', 33: '20260907' });
   return row;
 };
-test('KIS supports alphanumeric Korean symbols and NASDAQ subscriptions only', () => {
+test('KIS supports alphanumeric Korean symbols and US exchange subscriptions', () => {
   assert.equal(subscription('KOSPI', '0126Z0').key, '0126Z0');
   assert.equal(subscription('NASDAQ', 'NVDA.O').key, 'DNASNVDA');
+  assert.equal(subscription('NYSE', 'IBM').key, 'DNYSIBM');
+  assert.equal(subscription('NYSE', 'APLE.K').key, 'DNYSAPLE');
+  assert.equal(subscription('AMEX', 'AA.K').key, 'DAMSAA');
   assert.equal(subscription('KOSPI', '../../key'), null);
   assert.equal(subscription('NASDAQ', 'IBM.N'), null);
 });
