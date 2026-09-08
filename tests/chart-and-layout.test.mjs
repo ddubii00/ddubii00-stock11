@@ -73,13 +73,22 @@ test('adaptive price boards fit their panel without scrolling or skipped stocks'
   }
 });
 
-test('wide displays show 100+ quotes and 52–64 compact charts, without shrinking prices', () => {
+test('wide displays show 100+ quotes and 60–76 compact charts, without shrinking prices', () => {
   assert.equal(fitBoard(1896, 1000, false, true).capacity, 128);
   assert.equal(fitBoard(1576, 800, false, true).capacity, 100);
-  assert.equal(fitBoard(1896, 1000, true, true).capacity, 64);
-  assert.equal(fitBoard(1416, 800, true, true).capacity, 52);
-  assert.ok(fitBoard(1896, 1000, true, true).rowHeight >= 60);
-  assert.ok(fitBoard(1896, 1000, true, true).rowHeight < 72);
+  assert.equal(fitBoard(1896, 1000, true, true).capacity, 76);
+  assert.equal(fitBoard(1416, 800, true, true).capacity, 60);
+  assert.ok(fitBoard(1896, 1000, true, true).rowHeight >= 52);
+  assert.ok(fitBoard(1896, 1000, true, true).rowHeight <= 56);
+});
+
+test('denser chart rows still fit the viewport and preserve space for both price lines', () => {
+  for (const large of [true, false]) for (const [width, height] of [[390, 600], [810, 1090], [1170, 734], [1416, 800], [1896, 1000]]) {
+    const layout = fitBoard(width, height, true, large);
+    assert.ok(layout.rows * layout.rowHeight <= height);
+    assert.ok(layout.rowHeight >= (large ? 52 : 48));
+    assert.ok(layout.rowHeight <= 56);
+  }
 });
 
 test('iPad portrait uses two columns and landscape uses three', () => {
