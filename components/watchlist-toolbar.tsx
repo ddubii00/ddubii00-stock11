@@ -10,7 +10,7 @@ export function WatchlistToolbar({ items, onChange, storageError }: {
   const [query, setQuery] = useState('');
   const [results, setResults] = useState<StockSelection[]>([]);
   const [open, setOpen] = useState(false);
-  const [message, setMessage] = useState('종목명·코드 검색 · ↑↓ 선택 / Enter 추가');
+  const [message, setMessage] = useState('주식·ETF 이름 일부 / 티커 / 번호 검색 · ↑↓ 선택 / Enter 추가');
   useEffect(() => {
     if (!query.trim()) return;
     const controller = new AbortController();
@@ -38,12 +38,12 @@ export function WatchlistToolbar({ items, onChange, storageError }: {
   return <div className="watch-toolbar">
     <div className="watch-search-row">
       <Combobox items={results} filter={null} value={null} inputValue={query} open={open} onOpenChange={setOpen}
-        onInputValueChange={(value, details) => { if (details.reason === 'item-press') return; setQuery(value); setResults([]); setMessage(value.trim() ? '검색 중…' : '종목명·코드 검색 · ↑↓ 선택 / Enter 추가'); }}
+        onInputValueChange={(value, details) => { if (details.reason === 'item-press') return; setQuery(value); setResults([]); setOpen(Boolean(value.trim())); setMessage(value.trim() ? '검색 중…' : '주식·ETF 이름 일부 / 티커 / 번호 검색 · ↑↓ 선택 / Enter 추가'); }}
         onValueChange={add} itemToStringLabel={(item: StockSelection) => item.name} autoHighlight>
-        <ComboboxInput className="watch-search" placeholder="한국·미국 종목 추가 (삼성, 애플, AAPL…)" aria-label="관심종목 검색" showTrigger={false} maxLength={60} />
+        <ComboboxInput className="watch-search" placeholder="한국·미국 주식·ETF (하이닉스, QQQ, 069500…)" aria-label="관심종목 검색" showTrigger={false} maxLength={60} />
         <ComboboxContent className="watch-results">
           <ComboboxList>{(item: StockSelection) => <ComboboxItem key={symbolKey(item)} value={item}>
-            <strong>{item.name}</strong><span>{item.code} · {item.market}</span>
+            <strong>{item.name}</strong><span>{item.code} · {item.market}{item.instrumentType === 'etf' ? ' · ETF' : ''}</span>
           </ComboboxItem>}</ComboboxList>
           {!results.length && <p className="search-message">{message}</p>}
         </ComboboxContent>

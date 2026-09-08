@@ -1,4 +1,5 @@
 import type { Market, MinuteSeries, MarketPayload, IndexQuote, Quote, StockSelection, CandleSeries } from './market-types';
+import { searchUsSymbols } from './us-symbol-search';
 
 const headers = { Accept: 'application/json', Referer: 'https://m.stock.naver.com/', 'User-Agent': 'Mozilla/5.0' };
 const cache = new Map<string, { expires: number; value: unknown }>();
@@ -42,6 +43,7 @@ function quoteFrom(stock: Stock, fallback: Market): Quote {
   const price = number(stock.closePrice), changePrice = number(stock.compareToPreviousClosePrice), change = number(stock.fluctuationsRatio);
   if (![price, changePrice, change].every(Number.isFinite) || price <= 0) throw new Error('유효한 현재가가 없습니다.');
   return {
+    ...(stock.stockEndType === 'etf' ? { instrumentType: 'etf' as const } : {}),
     code: stock.symbolCode ?? stock.itemCode ?? stock.reutersCode ?? '', chartCode: stock.itemCode ?? stock.reutersCode ?? '',
     name: stock.stockName, market, marketStatus: stock.marketStatus, price, changePrice, change, previousClose: price - changePrice,
     turnover: domestic(market) ? stock.accumulatedTradingValueKrwHangeul ?? '—' : stock.accumulatedTradingValue ?? '—', asOf: stock.localTradedAt,
@@ -102,11 +104,37 @@ export async function readMinutes(market: Market, code: string, index = false): 
   };
 }
 
+async function autocomplete(query: string): Promise<StockSelection[]> {
+  // Provider search matches names internally as well as symbols/codes. Do not
+  // apply a second prefix filter: e.g. 하이닉스 must retain SK하이닉스.
+  const normalized = query.normalize('NFC').trim();
+  if (!normalized) return [];
+  const data = await naverJson<{ items?: { code: string; reutersCode: string; name: string; typeCode: string; nationCode: string; category: string; url: string }[] }>(`https://ac.stock.naver.com/ac?q=${encodeURIComponent(normalized)}&target=stock&st=111`, 60_000);
+  return (data.items ?? []).filter((item) => ['KOR', 'USA'].includes(item.nationCode) && ['stock', 'etf'].includes(item.category)
+    && ['KOSPI', 'KOSDAQ', 'NASDAQ', 'NYSE', 'AMEX'].includes(item.typeCode))
+    .map((item) => ({ code: item.code, chartCode: item.reutersCode, name: item.name, market: item.typeCode as StockSelection['market'],
+      ...(item.category === 'etf' || item.url.includes('/etf/') ? { instrumentType: 'etf' as const } : {}) }));
+}
+
 export async function searchStocks(query: string): Promise<StockSelection[]> {
-  const data = await naverJson<{ items?: { code: string; reutersCode: string; name: string; typeCode: string; nationCode: string; category: string; url: string }[] }>(`https://ac.stock.naver.com/ac?q=${encodeURIComponent(query)}&target=stock&st=111`, 60_000);
-  return (data.items ?? []).filter((item) => ['KOR', 'USA'].includes(item.nationCode) && item.category === 'stock'
-    && ['KOSPI', 'KOSDAQ', 'NASDAQ', 'NYSE', 'AMEX'].includes(item.typeCode) && !item.url.includes('/etf/'))
-    .map((item) => ({ code: item.code, chartCode: item.reutersCode, name: item.name, market: item.typeCode as StockSelection['market'] }));
+  const [primary, catalog] = await Promise.allSettled([autocomplete(query), searchUsSymbols(query)]);
+  const initial = primary.status === 'fulfilled' ? primary.value : [];
+  const candidates = catalog.status === 'fulfilled' ? catalog.value.filter((item) => !initial.some((existing) => existing.code === item.code)) : [];
+  // Resolve exact tickers through Naver, never guess Reuters suffixes or exchanges.
+  const resolved: StockSelection[] = [];
+  let cursor = 0;
+  await Promise.all(Array.from({ length: Math.min(4, candidates.length) }, async () => {
+    while (cursor < candidates.length) {
+      const candidate = candidates[cursor++];
+      try {
+        const match = (await autocomplete(candidate.code)).find((item) => !domestic(item.market) && item.code.toUpperCase() === candidate.code.toUpperCase());
+        if (match) resolved.push({ ...match, ...(candidate.etf ? { instrumentType: 'etf' as const } : {}) });
+      } catch { /* Keep other results if this symbol is unavailable at the provider. */ }
+    }
+  }));
+  if (primary.status === 'rejected' && !resolved.length) throw primary.reason;
+  resolved.sort((a, b) => a.code.localeCompare(b.code));
+  return [...new Map([...initial, ...resolved].map((item) => [`${item.market}:${item.chartCode}`, item])).values()].slice(0, 20);
 }
 
 // Same bank-quoted USD/KRW series as the header. Keep only the last real quote
@@ -137,7 +165,7 @@ export async function readFxMinutes(): Promise<MinuteSeries> {
 export async function readQuote(market: Market, code: string): Promise<Quote> {
   const root = domestic(market) ? 'https://m.stock.naver.com/api' : 'https://api.stock.naver.com';
   const stock = await naverJson<Stock>(`${root}/stock/${encodeURIComponent(code)}/basic`);
-  if (stock.stockEndType !== 'stock') throw new Error('주식 종목이 아닙니다.');
+  if (!['stock', 'etf'].includes(stock.stockEndType)) throw new Error('주식 또는 ETF 종목이 아닙니다.');
   return quoteFrom(stock, market);
 }
 

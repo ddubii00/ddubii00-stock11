@@ -1,0 +1,37 @@
+import test, { after } from 'node:test';
+import assert from 'node:assert/strict';
+import { searchStocks, readQuote, readMinutes } from '../lib/naver.ts';
+import { restoreWatchlist } from '../lib/watchlist.ts';
+import { stockUrl } from '../lib/stock-links.ts';
+const originalFetch = globalThis.fetch;
+after(() => { globalThis.fetch = originalFetch; });
+
+test('search retains middle-name matches and Korean/US ETFs while excluding other markets', async () => {
+  const entries = [
+    { code: '000660', reutersCode: '000660', name: 'SK하이닉스', typeCode: 'KOSPI', nationCode: 'KOR', category: 'stock', url: '/domestic/stock/000660/total' },
+    { code: '069500', reutersCode: '069500', name: 'KODEX 200', typeCode: 'KOSPI', nationCode: 'KOR', category: 'stock', url: '/domestic/stock/069500/total' },
+    { code: 'QQQ', reutersCode: 'QQQ.O', name: 'Invesco QQQ Trust Series 1', typeCode: 'NASDAQ', nationCode: 'USA', category: 'stock', url: '/worldstock/etf/QQQ.O' },
+    { code: 'BAD', reutersCode: 'BAD', name: 'Other market', typeCode: 'TOKYO', nationCode: 'JPN', category: 'stock', url: '/stock/BAD' },
+  ];
+  globalThis.fetch = async () => Response.json({ items: entries });
+  const result = await searchStocks('  하이닉스  ');
+  assert.deepEqual(result.map((item) => item.code), ['000660', '069500', 'QQQ']);
+  assert.equal(result[2].instrumentType, 'etf');
+  assert.deepEqual(restoreWatchlist(JSON.stringify(result)), result);
+  assert.equal(stockUrl(result[2], 'NASDAQ'), 'https://stock.naver.com/worldstock/etf/QQQ.O');
+});
+
+test('Korean and US ETF quotes and minute series work through the common provider endpoints', async () => {
+  for (const [market, code, name] of [['KOSPI', '069500', 'KODEX 200'], ['NASDAQ', 'QQQ.O', 'Invesco QQQ Trust']]) {
+    globalThis.fetch = async (url) => Response.json((typeof url === 'string' ? url : url instanceof URL ? url.href : url.url).includes('/chart/') ? {
+      tradeBaseAt: '20260908', lastClosePrice: 100, localDateTimeNow: '20260908100000',
+      priceInfos: [{ localDateTime: '20260908093000', currentPrice: 101 }, { localDateTime: '20260908100100', currentPrice: 102 }],
+    } : { stockEndType: 'etf', reutersCode: code, stockName: name, closePrice: '101', compareToPreviousClosePrice: '1', fluctuationsRatio: '1', marketStatus: 'OPEN', localTradedAt: '2026-09-08T10:00:00', stockExchangeType: { name: market } });
+    const quote = await readQuote(market, code);
+    assert.equal(quote.instrumentType, 'etf');
+    assert.equal(quote.price, 101);
+    assert.equal(quote.name, name);
+    const series = await readMinutes(market, code);
+    assert.deepEqual(series.points, [{ minute: 570, price: 101 }]);
+  }
+});

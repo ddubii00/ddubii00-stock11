@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { parseSymbols, restoreWatchlist, symbolKey } from '../lib/watchlist.ts';
+import { parseSymbols, reorderWatchlist, restoreWatchlist, symbolKey } from '../lib/watchlist.ts';
 import { makeChartModel } from '../lib/chart-model.ts';
 import { stockUrl } from '../lib/stock-links.ts';
 
@@ -25,4 +25,21 @@ test('NYSE, AMEX and S&P500 charts use US time and PC destinations', () => {
     assert.equal(model.last.minute, 960);
     assert.equal(stockUrl({ code: 'IBM', chartCode: 'IBM' }, market), 'https://stock.naver.com/worldstock/stock/IBM/total');
   }
+});
+
+test('watchlist reordering moves in both directions, preserves metadata, and survives persistence', () => {
+  const items = [
+    { market: 'KOSPI', code: '005930', chartCode: '005930', name: '삼성전자' },
+    { market: 'NASDAQ', code: 'AAPL', chartCode: 'AAPL.O', name: '애플' },
+    { market: 'KOSDAQ', code: '0126Z0', chartCode: '0126Z0', name: '테스트' },
+  ];
+  const moved = reorderWatchlist(items, symbolKey(items[0]), symbolKey(items[2]));
+  assert.deepEqual(moved, [items[1], items[2], items[0]]);
+  assert.equal(items[0].name, '삼성전자');
+  assert.equal(moved[2], items[0]);
+  assert.deepEqual(restoreWatchlist(JSON.stringify(moved)), moved);
+  assert.deepEqual(reorderWatchlist(moved, symbolKey(items[0]), symbolKey(items[1])), items);
+  assert.equal(reorderWatchlist(items, 'NYSE:missing', symbolKey(items[0])), items);
+  assert.equal(reorderWatchlist(items, symbolKey(items[0]), 'NYSE:missing'), items);
+  assert.equal(reorderWatchlist(items, symbolKey(items[0]), symbolKey(items[0])), items);
 });

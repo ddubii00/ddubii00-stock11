@@ -1,7 +1,7 @@
 'use client';
 /* eslint-disable jsx-a11y/no-noninteractive-tabindex -- Independently scrolling stock tables need keyboard focus for arrow-key scrolling. */
 
-import { useCallback, useEffect, useRef, useState } from 'react';
+import { useCallback, useEffect, useRef, useState, type DragEvent, type MouseEvent } from 'react';
 import { ChevronLeft, ChevronRight, Expand, Pause, Play, RefreshCw, Type, X } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
@@ -11,11 +11,12 @@ import { fitBoard } from '@/lib/board-layout';
 import { sessionFor } from '@/lib/chart-model';
 import { Sparkline, type LiveTick } from '@/components/stock-charts';
 import { WatchlistToolbar } from '@/components/watchlist-toolbar';
-import { restoreWatchlist, symbolKey, WATCHLIST_KEY } from '@/lib/watchlist';
+import { reorderWatchlist, restoreWatchlist, symbolKey, WATCHLIST_KEY } from '@/lib/watchlist';
 import { stockUrl } from '@/lib/stock-links';
 import type { IndexQuote, Market, MarketPayload, MinuteSeries, Quote, StockSelection } from '@/lib/market-types';
 
 const markets: Market[] = ['KOSPI', 'KOSDAQ', 'NASDAQ', 'SP500'];
+type HighlightColor = 'yellow' | 'red';
 const marketLabel = (market: Market) => market === 'SP500' ? 'S&P500' : market;
 const isUS = (market: Market) => market !== 'KOSPI' && market !== 'KOSDAQ';
 const views = markets.flatMap((market) => [
@@ -42,19 +43,41 @@ function Price({ quote, market }: { quote: Quote; market: Market }) {
   return <strong className={`current-price ${tone(quote.change)}`}>{isUS(market) ? '$' : ''}{formatted(quote.price, market)}</strong>;
 }
 
-export function Board({ market, graph, payload, largeText, autoRefresh, error, now, provider, watch = false, onRemove, highlighted, onHighlight }: {
+export function Board({ market, graph, payload, largeText, autoRefresh, error, now, provider, watch = false, onRemove, onReorder, highlighted, onHighlight }: {
   market: Market; graph: boolean; payload?: MarketPayload; largeText: boolean;
   autoRefresh: boolean; error?: string; now: number; provider: 'naver' | 'kis';
   watch?: boolean; onRemove?: (quote: Quote) => void;
-  highlighted?: ReadonlySet<string>; onHighlight?: (key: string) => void;
+  onReorder?: (source: string, target: string) => void;
+  highlighted?: ReadonlyMap<string, HighlightColor>; onHighlight?: (key: string, color?: HighlightColor) => void;
 }) {
-  const [localHighlights, setLocalHighlights] = useState<Set<string>>(new Set());
+  const [localHighlights, setLocalHighlights] = useState<Map<string, HighlightColor>>(new Map());
   const selected = highlighted ?? localHighlights;
-  const toggleHighlight = onHighlight ?? ((key: string) => setLocalHighlights((current) => {
-    const next = new Set(current);
-    if (next.has(key)) next.delete(key); else next.add(key);
+  const updateHighlight = onHighlight ?? ((key: string, color?: HighlightColor) => setLocalHighlights((current) => {
+    const next = new Map(current);
+    if (color) next.set(key, color); else next.delete(key);
     return next;
   }));
+  const isHighlighted = (key: string) => selected.has(key);
+  const toggleHighlight = (key: string) => updateHighlight(key, selected.has(key) ? undefined : 'red');
+  const clickOrigin = useRef<{ key: string; color?: HighlightColor } | null>(null);
+  const highlightClick = (event: MouseEvent, key: string) => {
+    if (!watch) { toggleHighlight(key); return; }
+    if (event.detail > 1) return;
+    // Remember the original color before the first click of a double-click.
+    // This avoids timers and honors the OS's own double-click speed setting.
+    clickOrigin.current = { key, color: selected.get(key) };
+    updateHighlight(key, selected.get(key) === 'yellow' ? undefined : 'yellow');
+  };
+  const highlightDoubleClick = (key: string) => {
+    const original = clickOrigin.current?.key === key ? clickOrigin.current.color : selected.get(key);
+    updateHighlight(key, original === 'red' ? undefined : 'red');
+    clickOrigin.current = null;
+  };
+  const highlightLabel = '배경 표시';
+  const highlightHint = watch ? '한 번 클릭: 노란색 · 더블클릭: 빨간색 · 같은 동작을 반복하면 해제' : '클릭: 표시 켜기/끄기';
+  const dragSource = useRef<string | null>(null);
+  const [dropTarget, setDropTarget] = useState<string | null>(null);
+  const [moveMessage, setMoveMessage] = useState('');
   const area = useRef<HTMLDivElement>(null);
   const [size, setSize] = useState({ width: 0, height: 0 });
   const [page, setPage] = useState(0);
@@ -72,6 +95,56 @@ export function Board({ market, graph, payload, largeText, autoRefresh, error, n
   const currentPage = Math.min(page, pageCount - 1);
   const offset = currentPage * layout.capacity;
   const visible = quotes.slice(offset, offset + layout.capacity);
+  const hasActions = Boolean(onRemove || (watch && onReorder));
+  const quoteKey = (quote: Quote) => symbolKey({ market: quote.market ?? market, chartCode: quote.chartCode });
+  const endDrag = () => { dragSource.current = null; setDropTarget(null); };
+  const moveStock = (source: string, target: string) => {
+    if (!onReorder || source === target) return;
+    const from = quotes.find((quote) => quoteKey(quote) === source);
+    const to = quotes.findIndex((quote) => quoteKey(quote) === target);
+    if (!from || to < 0) return;
+    onReorder(source, target);
+    setMoveMessage(`${from.name} ${to + 1}번째로 이동했습니다.`);
+  };
+  const dropEvents = (key: string) => watch && onReorder ? {
+    onDragOver: (event: DragEvent) => {
+      if (!dragSource.current) return;
+      event.preventDefault(); event.dataTransfer.dropEffect = 'move';
+      setDropTarget(key);
+    },
+    onDragLeave: (event: DragEvent) => {
+      if (!(event.relatedTarget instanceof Node) || !event.currentTarget.contains(event.relatedTarget)) setDropTarget((current) => current === key ? null : current);
+    },
+    onDrop: (event: DragEvent) => {
+      if (!dragSource.current) return;
+      event.preventDefault(); event.stopPropagation();
+      moveStock(dragSource.current, key); endDrag();
+    },
+  } : {};
+  const reorderHandle = (quote: Quote, key: string) => watch && onReorder && <Button
+    variant="ghost" size="icon" className="stock-reorder" draggable data-reorder-key={key}
+    aria-label={`${quote.name} 순서 이동`} title="드래그해서 순서 이동 · 키보드 ↑↓, Home, End"
+    onClick={(event) => event.stopPropagation()} onDoubleClick={(event) => event.stopPropagation()}
+    onDragStart={(event) => {
+      dragSource.current = key; event.dataTransfer.effectAllowed = 'move';
+      event.dataTransfer.setData('text/plain', key);
+      const cell = event.currentTarget.closest('.graph-slot, tr');
+      if (cell) event.dataTransfer.setDragImage(cell, 12, 12);
+    }} onDragEnd={endDrag}
+    onKeyDown={(event) => {
+      const index = quotes.findIndex((item) => quoteKey(item) === key);
+      const destination = event.key === 'ArrowUp' ? index - 1 : event.key === 'ArrowDown' ? index + 1
+        : event.key === 'Home' ? 0 : event.key === 'End' ? quotes.length - 1 : null;
+      if (destination === null) return;
+      event.preventDefault(); event.stopPropagation();
+      if (!quotes[destination]) return;
+      moveStock(key, quoteKey(quotes[destination]));
+      setPage(Math.floor(destination / layout.capacity));
+      requestAnimationFrame(() => {
+        Array.from(area.current?.querySelectorAll<HTMLButtonElement>('[data-reorder-key]') ?? [])
+          .find((button) => button.dataset.reorderKey === key)?.focus();
+      });
+    }}><span aria-hidden="true">=</span></Button>;
   const codes = graph ? visible.map((quote) => symbolKey({ market: quote.market ?? market, chartCode: quote.chartCode })).join(',') : '';
   const liveCodes = visible.filter((quote) => (quote.marketStatus ?? payload?.marketStatus) === 'OPEN').map((quote) => symbolKey({ market: quote.market ?? market, chartCode: quote.chartCode })).join(',');
 
@@ -154,40 +227,44 @@ export function Board({ market, graph, payload, largeText, autoRefresh, error, n
   const asOf = payload?.asOf ? new Date(payload.asOf).toLocaleString('ko-KR', {
     timeZone: sessionFor(market).timeZone, month: '2-digit', day: '2-digit', hour: '2-digit', minute: '2-digit', hourCycle: 'h23',
   }) : '';
-  return <section className={`board-section ${market === 'KOSPI' && graph && !watch ? 'kospi-chart-board' : ''}`}>
+  return <section className={`board-section ${watch ? 'watch-board' : ''} ${market === 'KOSPI' && graph && !watch ? 'kospi-chart-board' : ''}`}>
+    {watch && <output className="sr-only">{moveMessage}</output>}
     <div ref={area} className={`board-viewport ${graph ? 'graph-viewport' : 'quotes-viewport'}`}>
       {!quotes.length ? <output className="board-empty">{error ?? (watch ? '위 검색창에서 한국·미국 관심종목을 추가하세요.' : `${marketLabel(market)} 시세를 불러오고 있습니다.`)}</output> : graph ?
         <div className="graph-grid" style={{ gridTemplateColumns: `repeat(${layout.columns}, minmax(0, 1fr))`, gridTemplateRows: `repeat(${layout.rows}, ${Math.max(1, layout.rowHeight - 1)}px)` }}>
           {visible.map((quote, index) => {
             const exchange = quote.market ?? market, key = symbolKey({ market: exchange, chartCode: quote.chartCode });
-            return <div className={`graph-slot ${watch ? 'watch-slot' : ''}`} key={key} style={{ gridColumn: Math.floor(index / layout.rows) + 1, gridRow: index % layout.rows + 1 }}>
-              <div className="graph-card" data-highlighted={selected.has(key)}>
-              <Button variant="ghost" className="chart-highlight-toggle" aria-label={`${quote.name} 노란색 표시`} aria-pressed={selected.has(key)} onClick={() => toggleHighlight(key)} />
+            return <div className={`graph-slot ${watch ? 'watch-slot' : ''}`} key={key} data-drop-target={dropTarget === key} {...dropEvents(key)} style={{ gridColumn: Math.floor(index / layout.rows) + 1, gridRow: index % layout.rows + 1 }}>
+              <div className="graph-card" data-highlighted={isHighlighted(key)} data-highlight-color={selected.get(key)}>
+              <Button variant="ghost" className="chart-highlight-toggle" aria-label={`${quote.name} ${highlightLabel}`} title={highlightHint} aria-pressed={isHighlighted(key)} onClick={(event) => highlightClick(event, key)} onDoubleClick={watch ? () => highlightDoubleClick(key) : undefined} />
               <div className="graph-identity"><a href={stockUrl(quote, exchange)} target="_blank" rel="noopener noreferrer" aria-label={`${quote.name} 네이버 증권 새 탭에서 보기`}><strong title={quote.name}>{quote.name}</strong></a><span>{offset + index + 1} · {quote.code}{watch ? ' · 분봉' : ''}</span></div>
               <Sparkline series={series[key]} tick={provider === 'kis' && quote.marketStatus === 'OPEN' && autoRefresh ? liveTicks[quote.chartCode] : undefined} name={quote.name} now={now} />
               <div className="graph-price"><Price quote={quote} market={exchange} />{quote.pending ? <span className="price-flat">수신 대기</span> : <Change value={quote.change} />}</div>
               {chartErrors[key] && <span className="chart-error">{chartErrors[key]}</span>}
               </div>
               {onRemove && <Button variant="ghost" size="icon" className="stock-remove" aria-label={`${quote.name} 관심종목 삭제`} title="관심종목 삭제" onClick={() => onRemove(quote)}><X /></Button>}
+              {reorderHandle(quote, key)}
             </div>;
           })}
         </div> :
         <div className="quote-columns" style={{ gridTemplateColumns: `repeat(${layout.columns}, minmax(0, 1fr))` }}>
           {columns.map((column, columnIndex) => <section className="quote-column" key={columnIndex} tabIndex={0} aria-label={`${market} ${columnIndex + 1}열 시세 스크롤 영역`}>
             <Table className={`quote-table ${watch ? 'watch-quote-table' : ''}`}>
-              <colgroup><col className="rank-col" /><col /><col className="price-col" /><col className="rate-col" />{onRemove && <col className="remove-col" />}</colgroup>
-              <TableHeader><TableRow><TableHead scope="col">#</TableHead><TableHead scope="col">종목명</TableHead><TableHead scope="col">현재가</TableHead><TableHead scope="col">등락률</TableHead>{onRemove && <TableHead scope="col"><span className="sr-only">삭제</span></TableHead>}</TableRow></TableHeader>
+              <colgroup><col className="rank-col" /><col /><col className="price-col" /><col className="rate-col" />{hasActions && <col className="remove-col" />}</colgroup>
+              <TableHeader><TableRow><TableHead scope="col">#</TableHead><TableHead scope="col">종목명</TableHead><TableHead scope="col">현재가</TableHead><TableHead scope="col">등락률</TableHead>{hasActions && <TableHead scope="col"><span className="sr-only">관리</span></TableHead>}</TableRow></TableHeader>
               <TableBody>{column.map((quote, index) => {
                 const key = symbolKey({ market: quote.market ?? market, chartCode: quote.chartCode });
                 // The rank button provides keyboard access; the row extends its pointer hit area.
-                return <TableRow key={key} style={{ height: layout.rowHeight }} data-highlighted={selected.has(key)} onClick={(event) => {
-                  if (!(event.target as Element).closest('a, button')) toggleHighlight(key);
+                return <TableRow key={key} style={{ height: layout.rowHeight }} data-highlighted={isHighlighted(key)} data-highlight-color={selected.get(key)} data-drop-target={dropTarget === key} {...dropEvents(key)} onClick={(event) => {
+                  if (!(event.target as Element).closest('a, button')) highlightClick(event, key);
+                }} onDoubleClick={(event) => {
+                  if (watch && !(event.target as Element).closest('a, button')) highlightDoubleClick(key);
                 }}>
-                <TableCell className="rank"><Button variant="ghost" className="rank-highlight-toggle" aria-label={`${quote.name} 노란색 표시`} aria-pressed={selected.has(key)} onClick={() => toggleHighlight(key)}>{offset + columnIndex * layout.rows + index + 1}</Button></TableCell>
+                <TableCell className="rank"><Button variant="ghost" className="rank-highlight-toggle" aria-label={`${quote.name} ${highlightLabel}`} title={highlightHint} aria-pressed={isHighlighted(key)} onClick={(event) => highlightClick(event, key)} onDoubleClick={watch ? () => highlightDoubleClick(key) : undefined}>{offset + columnIndex * layout.rows + index + 1}</Button></TableCell>
                 <TableCell className="stock-name" title={`${quote.name} (${quote.code}) · ${quote.market} ${statusLabel(quote.marketStatus)} · ${quote.asOf} · 거래대금 ${quote.turnover}`}><a href={stockUrl(quote, quote.market ?? market)} target="_blank" rel="noopener noreferrer"><strong>{quote.name}</strong></a></TableCell>
                 <TableCell><Price quote={quote} market={quote.market ?? market} /></TableCell>
                 <TableCell>{quote.pending ? <span className="price-flat">—</span> : <Change value={quote.change} />}</TableCell>
-                {onRemove && <TableCell className="stock-remove-cell"><Button variant="ghost" size="icon" className="stock-remove" aria-label={`${quote.name} 관심종목 삭제`} title="관심종목 삭제" onClick={() => onRemove(quote)}><X /></Button></TableCell>}
+                {hasActions && <TableCell className="stock-remove-cell">{onRemove && <Button variant="ghost" size="icon" className="stock-remove" aria-label={`${quote.name} 관심종목 삭제`} title="관심종목 삭제" onClick={() => onRemove(quote)}><X /></Button>}{reorderHandle(quote, key)}</TableCell>}
               </TableRow>; })}</TableBody>
             </Table>
           </section>)}
@@ -207,10 +284,10 @@ export function Board({ market, graph, payload, largeText, autoRefresh, error, n
 }
 
 export function StockDashboard() {
-  const [highlighted, setHighlighted] = useState<Set<string>>(new Set());
-  const onHighlight = (key: string) => setHighlighted((current) => {
-    const next = new Set(current);
-    if (next.has(key)) next.delete(key); else next.add(key);
+  const [highlighted, setHighlighted] = useState<Map<string, HighlightColor>>(new Map());
+  const onHighlight = (key: string, color?: HighlightColor) => setHighlighted((current) => {
+    const next = new Map(current);
+    if (color) next.set(key, color); else next.delete(key);
     return next;
   });
   const [data, setData] = useState<Partial<Record<Market, MarketPayload>>>({});
@@ -367,7 +444,7 @@ export function StockDashboard() {
       </TabsContent>)}
       {['watchlist', 'watchlist-chart'].map((value) => <TabsContent key={value} value={value} className="market-panel watch-panel">
         <WatchlistToolbar items={watchlist} onChange={setWatchlist} storageError={storageError} />
-        <Board market="KOSPI" graph={value.endsWith('-chart')} highlighted={highlighted} onHighlight={onHighlight} watch onRemove={(quote) => setWatchlist((items) => items.filter((item) => item.chartCode !== quote.chartCode))} payload={watchPayload} largeText={largeText} autoRefresh={autoRefresh} error={watchlist.length ? watchError || (savedQuotes.length ? undefined : '관심종목 시세 수신 중…') : undefined} now={now} provider={provider} />
+        <Board market="KOSPI" graph={value.endsWith('-chart')} highlighted={highlighted} onHighlight={onHighlight} watch onReorder={(source, target) => setWatchlist((items) => reorderWatchlist(items, source, target))} onRemove={(quote) => setWatchlist((items) => items.filter((item) => item.chartCode !== quote.chartCode))} payload={watchPayload} largeText={largeText} autoRefresh={autoRefresh} error={watchlist.length ? watchError || (savedQuotes.length ? undefined : '관심종목 시세 수신 중…') : undefined} now={now} provider={provider} />
       </TabsContent>)}
     </Tabs>
   </main>;
