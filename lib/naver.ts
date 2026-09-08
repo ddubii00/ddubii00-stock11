@@ -125,10 +125,12 @@ export async function readFxMinutes(): Promise<MinuteSeries> {
     const minute = Number(point.localDateTime.slice(8, 10)) * 60 + Number(point.localDateTime.slice(10, 12));
     if (minute < 1440) perMinute.set(minute, { minute, price: point.currentPrice });
   }
-  const points = [...perMinute.values()], start = points[0]?.minute ?? 0;
+  // Fixed Korean stock-session window; never stretch the latest quote to the right edge.
+  const session = { start: 540, end: 930, timeZone: 'Asia/Seoul', ticks: [540, 660, 780, 930] };
+  const points = [...perMinute.values()].filter((point) => point.minute >= session.start && point.minute <= session.end);
   return { market: 'FX', code: 'FX_USDKRW', date: result.tradeBaseAt, previousClose: result.lastClosePrice,
     asOf: result.localDateTimeNow, points,
-    session: { start, end: Math.max(start + 1, points.at(-1)?.minute ?? start), timeZone: 'Asia/Seoul', ticks: [] },
+    session,
   };
 }
 

@@ -42,11 +42,19 @@ function Price({ quote, market }: { quote: Quote; market: Market }) {
   return <strong className={`current-price ${tone(quote.change)}`}>{isUS(market) ? '$' : ''}{formatted(quote.price, market)}</strong>;
 }
 
-export function Board({ market, graph, payload, largeText, autoRefresh, error, now, provider, watch = false, onRemove }: {
+export function Board({ market, graph, payload, largeText, autoRefresh, error, now, provider, watch = false, onRemove, highlighted, onHighlight }: {
   market: Market; graph: boolean; payload?: MarketPayload; largeText: boolean;
   autoRefresh: boolean; error?: string; now: number; provider: 'naver' | 'kis';
   watch?: boolean; onRemove?: (quote: Quote) => void;
+  highlighted?: ReadonlySet<string>; onHighlight?: (key: string) => void;
 }) {
+  const [localHighlights, setLocalHighlights] = useState<Set<string>>(new Set());
+  const selected = highlighted ?? localHighlights;
+  const toggleHighlight = onHighlight ?? ((key: string) => setLocalHighlights((current) => {
+    const next = new Set(current);
+    if (next.has(key)) next.delete(key); else next.add(key);
+    return next;
+  }));
   const area = useRef<HTMLDivElement>(null);
   const [size, setSize] = useState({ width: 0, height: 0 });
   const [page, setPage] = useState(0);
@@ -152,13 +160,14 @@ export function Board({ market, graph, payload, largeText, autoRefresh, error, n
         <div className="graph-grid" style={{ gridTemplateColumns: `repeat(${layout.columns}, minmax(0, 1fr))`, gridTemplateRows: `repeat(${layout.rows}, ${Math.max(1, layout.rowHeight - 1)}px)` }}>
           {visible.map((quote, index) => {
             const exchange = quote.market ?? market, key = symbolKey({ market: exchange, chartCode: quote.chartCode });
-            return <div className={`graph-slot ${watch ? 'watch-slot' : ''}`} key={key}>
-              <a className="graph-card" href={stockUrl(quote, exchange)} target="_blank" rel="noopener noreferrer" aria-label={`${quote.name} 네이버 증권 새 탭에서 보기`}>
-              <div className="graph-identity"><strong title={quote.name}>{quote.name}</strong><span>{offset + index + 1} · {quote.code}{watch ? ' · 분봉' : ''}</span></div>
+            return <div className={`graph-slot ${watch ? 'watch-slot' : ''}`} key={key} style={{ gridColumn: Math.floor(index / layout.rows) + 1, gridRow: index % layout.rows + 1 }}>
+              <div className="graph-card" data-highlighted={selected.has(key)}>
+              <Button variant="ghost" className="chart-highlight-toggle" aria-label={`${quote.name} 노란색 표시`} aria-pressed={selected.has(key)} onClick={() => toggleHighlight(key)} />
+              <div className="graph-identity"><a href={stockUrl(quote, exchange)} target="_blank" rel="noopener noreferrer" aria-label={`${quote.name} 네이버 증권 새 탭에서 보기`}><strong title={quote.name}>{quote.name}</strong></a><span>{offset + index + 1} · {quote.code}{watch ? ' · 분봉' : ''}</span></div>
               <Sparkline series={series[key]} tick={provider === 'kis' && quote.marketStatus === 'OPEN' && autoRefresh ? liveTicks[quote.chartCode] : undefined} name={quote.name} now={now} />
               <div className="graph-price"><Price quote={quote} market={exchange} />{quote.pending ? <span className="price-flat">수신 대기</span> : <Change value={quote.change} />}</div>
               {chartErrors[key] && <span className="chart-error">{chartErrors[key]}</span>}
-              </a>
+              </div>
               {onRemove && <Button variant="ghost" size="icon" className="stock-remove" aria-label={`${quote.name} 관심종목 삭제`} title="관심종목 삭제" onClick={() => onRemove(quote)}><X /></Button>}
             </div>;
           })}
@@ -168,13 +177,18 @@ export function Board({ market, graph, payload, largeText, autoRefresh, error, n
             <Table className={`quote-table ${watch ? 'watch-quote-table' : ''}`}>
               <colgroup><col className="rank-col" /><col /><col className="price-col" /><col className="rate-col" />{onRemove && <col className="remove-col" />}</colgroup>
               <TableHeader><TableRow><TableHead scope="col">#</TableHead><TableHead scope="col">종목명</TableHead><TableHead scope="col">현재가</TableHead><TableHead scope="col">등락률</TableHead>{onRemove && <TableHead scope="col"><span className="sr-only">삭제</span></TableHead>}</TableRow></TableHeader>
-              <TableBody>{column.map((quote, index) => <TableRow key={quote.code} style={{ height: layout.rowHeight }}>
-                <TableCell className="rank">{offset + columnIndex * layout.rows + index + 1}</TableCell>
+              <TableBody>{column.map((quote, index) => {
+                const key = symbolKey({ market: quote.market ?? market, chartCode: quote.chartCode });
+                // The rank button provides keyboard access; the row extends its pointer hit area.
+                return <TableRow key={key} style={{ height: layout.rowHeight }} data-highlighted={selected.has(key)} onClick={(event) => {
+                  if (!(event.target as Element).closest('a, button')) toggleHighlight(key);
+                }}>
+                <TableCell className="rank"><Button variant="ghost" className="rank-highlight-toggle" aria-label={`${quote.name} 노란색 표시`} aria-pressed={selected.has(key)} onClick={() => toggleHighlight(key)}>{offset + columnIndex * layout.rows + index + 1}</Button></TableCell>
                 <TableCell className="stock-name" title={`${quote.name} (${quote.code}) · ${quote.market} ${statusLabel(quote.marketStatus)} · ${quote.asOf} · 거래대금 ${quote.turnover}`}><a href={stockUrl(quote, quote.market ?? market)} target="_blank" rel="noopener noreferrer"><strong>{quote.name}</strong></a></TableCell>
-                <TableCell><a href={stockUrl(quote, quote.market ?? market)} target="_blank" rel="noopener noreferrer" aria-label={`${quote.name} 현재가 상세 보기`}><Price quote={quote} market={quote.market ?? market} /></a></TableCell>
-                <TableCell><a href={stockUrl(quote, quote.market ?? market)} target="_blank" rel="noopener noreferrer" aria-label={`${quote.name} 등락률 상세 보기`}>{quote.pending ? <span className="price-flat">—</span> : <Change value={quote.change} />}</a></TableCell>
+                <TableCell><Price quote={quote} market={quote.market ?? market} /></TableCell>
+                <TableCell>{quote.pending ? <span className="price-flat">—</span> : <Change value={quote.change} />}</TableCell>
                 {onRemove && <TableCell className="stock-remove-cell"><Button variant="ghost" size="icon" className="stock-remove" aria-label={`${quote.name} 관심종목 삭제`} title="관심종목 삭제" onClick={() => onRemove(quote)}><X /></Button></TableCell>}
-              </TableRow>)}</TableBody>
+              </TableRow>; })}</TableBody>
             </Table>
           </section>)}
         </div>}
@@ -193,6 +207,12 @@ export function Board({ market, graph, payload, largeText, autoRefresh, error, n
 }
 
 export function StockDashboard() {
+  const [highlighted, setHighlighted] = useState<Set<string>>(new Set());
+  const onHighlight = (key: string) => setHighlighted((current) => {
+    const next = new Set(current);
+    if (next.has(key)) next.delete(key); else next.add(key);
+    return next;
+  });
   const [data, setData] = useState<Partial<Record<Market, MarketPayload>>>({});
   const [indices, setIndices] = useState<IndexQuote[]>([]);
   const [errors, setErrors] = useState<Partial<Record<Market, string>>>({});
@@ -343,11 +363,11 @@ export function StockDashboard() {
       </div>
     </header>
       {views.map((view) => <TabsContent key={view.value} value={view.value} className="market-panel">
-        <Board {...view} payload={data[view.market]} largeText={largeText} autoRefresh={autoRefresh} error={errors[view.market]} now={now} provider={provider} />
+        <Board {...view} highlighted={highlighted} onHighlight={onHighlight} payload={data[view.market]} largeText={largeText} autoRefresh={autoRefresh} error={errors[view.market]} now={now} provider={provider} />
       </TabsContent>)}
       {['watchlist', 'watchlist-chart'].map((value) => <TabsContent key={value} value={value} className="market-panel watch-panel">
         <WatchlistToolbar items={watchlist} onChange={setWatchlist} storageError={storageError} />
-        <Board market="KOSPI" graph={value.endsWith('-chart')} watch onRemove={(quote) => setWatchlist((items) => items.filter((item) => item.chartCode !== quote.chartCode))} payload={watchPayload} largeText={largeText} autoRefresh={autoRefresh} error={watchlist.length ? watchError || (savedQuotes.length ? undefined : '관심종목 시세 수신 중…') : undefined} now={now} provider={provider} />
+        <Board market="KOSPI" graph={value.endsWith('-chart')} highlighted={highlighted} onHighlight={onHighlight} watch onRemove={(quote) => setWatchlist((items) => items.filter((item) => item.chartCode !== quote.chartCode))} payload={watchPayload} largeText={largeText} autoRefresh={autoRefresh} error={watchlist.length ? watchError || (savedQuotes.length ? undefined : '관심종목 시세 수신 중…') : undefined} now={now} provider={provider} />
       </TabsContent>)}
     </Tabs>
   </main>;

@@ -106,10 +106,18 @@ test('watchlists containing 1–3 stocks have exactly the same density as a 200-
   }
 });
 
-test('FX supports Korean-time pre-09:00 minute quotes without a stock-session cutoff', () => {
-  const input = { market: 'FX', code: 'FX_USDKRW', date: '20260908', previousClose: 1347, asOf: '', session: { start: 505, end: 530, timeZone: 'Asia/Seoul', ticks: [] }, points: [{ minute: 505, price: 1342.6 }, { minute: 521, price: 1345 }, { minute: 530, price: 1346 }] };
-  const model = makeChartModel(input, new Date('2026-09-08T08:41:00+09:00'));
-  assert.deepEqual(model.points.map((point) => point.minute), [505, 521]);
-  assert.equal(model.x(505), 0);
+test('FX uses a fixed 09:00–15:30 Korean stock-session axis and leaves future time blank', () => {
+  // Even an old cached response with a sliding session cannot move the X axis.
+  const input = { market: 'FX', code: 'FX_USDKRW', date: '20260908', previousClose: 1347, asOf: '', session: { start: 505, end: 600, timeZone: 'Asia/Seoul', ticks: [] }, points: [{ minute: 505, price: 1342.6 }, { minute: 540, price: 1345 }, { minute: 600, price: 1346 }, { minute: 660, price: 1348 }, { minute: 930, price: 1349 }, { minute: 931, price: 1500 }] };
+  const model = makeChartModel(input, new Date('2026-09-08T10:00:00+09:00'));
+  assert.deepEqual(model.points.map((point) => point.minute), [540, 600]);
+  assert.equal(model.x(540), 0);
+  assert.equal(model.x(600), 60 / 390);
+  assert.equal(model.x(930), 1);
   assert.ok(model.y(1347) > 0 && model.y(1347) < 1);
+  assert.equal(makeChartModel(input, new Date('2026-09-08T08:59:00+09:00')).points.length, 0);
+  const closed = makeChartModel(input, new Date('2026-09-08T16:00:00+09:00'));
+  assert.equal(closed.last.minute, 930);
+  assert.equal(closed.x(600), model.x(600));
+  assert.equal(makeChartModel(input, new Date('2026-09-09T08:00:00+09:00')).last.minute, 930);
 });

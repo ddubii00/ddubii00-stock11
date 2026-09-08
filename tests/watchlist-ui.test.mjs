@@ -16,6 +16,7 @@ const { default: userEvent } = await import('@testing-library/user-event');
 const { WatchlistToolbar } = await import('../components/watchlist-toolbar.tsx');
 const { Sparkline, Candlestick } = await import('../components/stock-charts.tsx');
 const { Board } = await import('../components/stock-dashboard.tsx');
+const { fitBoard } = await import('../lib/board-layout.ts');
 const samsung = { market: 'KOSPI', code: '005930', chartCode: '005930', name: '삼성전자' };
 const sdi = { market: 'KOSPI', code: '006400', chartCode: '006400', name: '삼성SDI' };
 const apple = { market: 'NASDAQ', code: 'AAPL', chartCode: 'AAPL.O', name: '애플' };
@@ -78,6 +79,71 @@ test('small watchlists use normal row height, minute trends, and cell-local dele
       await userEvent.setup({ document: dom.window.document }).click(button);
       assert.equal(screen.queryByRole('button', { name: '삼성전자 관심종목 삭제' }), null);
       assert.ok(screen.getByRole('button', { name: '애플 관심종목 삭제' }));
+      cleanup();
+    }
+  } finally { dom.window.HTMLElement.prototype.getBoundingClientRect = originalRect; cleanup(); }
+});
+
+test('quote and chart backgrounds toggle highlights independently of name links, across price updates and views', async () => {
+  globalThis.fetch = async () => Response.json({ series: {}, errors: {} });
+  const user = userEvent.setup({ document: dom.window.document });
+  for (const provider of ['naver', 'kis']) {
+    const quote = { ...samsung, price: 99900, previousClose: 99000, change: .91, changePrice: 900, asOf: '2026-09-07T15:30:00+09:00', turnover: '', marketStatus: 'CLOSE' };
+    const props = { market: 'KOSPI', graph: false, payload: { stocks: [quote], indices: [], marketStatus: 'CLOSE', asOf: quote.asOf, source: 'test' }, largeText: true, autoRefresh: false, now: Date.parse('2026-09-08T09:00:00+09:00'), provider };
+    const view = render(React.createElement(Board, props));
+    const toggle = () => screen.getByRole('button', { name: '삼성전자 노란색 표시' });
+    assert.equal(toggle().getAttribute('aria-pressed'), 'false');
+    await user.click(view.container.querySelector('.current-price'));
+    assert.equal(toggle().getAttribute('aria-pressed'), 'true');
+    assert.equal(toggle().closest('tr').dataset.highlighted, 'true');
+    const name = screen.getByRole('link', { name: '삼성전자' });
+    assert.match(name.href, /finance\.naver\.com\/item\/main\.naver\?code=005930/);
+    assert.equal(view.container.querySelectorAll('tbody a').length, 1);
+    await user.click(name);
+    assert.equal(toggle().getAttribute('aria-pressed'), 'true');
+    const next = { ...props, payload: { ...props.payload, stocks: [{ ...quote, price: 100000, change: 10.12 }] } };
+    view.rerender(React.createElement(Board, next));
+    assert.equal(toggle().getAttribute('aria-pressed'), 'true');
+    await user.click(view.container.querySelector('.change-rate'));
+    assert.equal(toggle().getAttribute('aria-pressed'), 'false');
+    toggle().focus();
+    await user.keyboard(' ');
+    assert.equal(toggle().getAttribute('aria-pressed'), 'true');
+    view.rerender(React.createElement(Board, { ...next, graph: true }));
+    assert.equal(toggle().getAttribute('aria-pressed'), 'true');
+    assert.equal(view.container.querySelector('.graph-card').dataset.highlighted, 'true');
+    assert.equal(view.container.querySelectorAll('.graph-card a').length, 1);
+    await user.click(screen.getByRole('link', { name: '삼성전자 네이버 증권 새 탭에서 보기' }));
+    assert.equal(toggle().getAttribute('aria-pressed'), 'true');
+    await user.click(toggle());
+    assert.equal(toggle().getAttribute('aria-pressed'), 'false');
+    toggle().focus();
+    await user.keyboard('{Enter}');
+    assert.equal(toggle().getAttribute('aria-pressed'), 'true');
+    cleanup();
+  }
+});
+
+test('chart ranking runs down each column before moving right, including subsequent pages', async () => {
+  const originalRect = dom.window.HTMLElement.prototype.getBoundingClientRect;
+  globalThis.fetch = async () => Response.json({ series: {}, errors: {} });
+  const user = userEvent.setup({ document: dom.window.document });
+  try {
+    for (const [width, height] of [[1600, 800], [810, 1090]]) {
+      dom.window.HTMLElement.prototype.getBoundingClientRect = () => ({ width, height, top: 0, left: 0, right: width, bottom: height, x: 0, y: 0, toJSON() {} });
+      const stocks = Array.from({ length: 200 }, (_, index) => ({ ...samsung, code: String(index).padStart(6, '0'), chartCode: String(index).padStart(6, '0'), name: `종목${index + 1}`, price: 100, previousClose: 99, change: 1, changePrice: 1, asOf: '2026-09-07T15:30:00+09:00', turnover: '', marketStatus: 'CLOSE' }));
+      const { container } = render(React.createElement(Board, { market: 'KOSPI', graph: true, payload: { stocks, indices: [], marketStatus: 'CLOSE', asOf: stocks[0].asOf, source: 'test' }, largeText: true, autoRefresh: false, now: Date.parse('2026-09-08T10:00:00+09:00'), provider: 'naver' }));
+      const layout = fitBoard(width, height, true, true, 200);
+      for (const page of [0, 1]) {
+        const slots = [...container.querySelectorAll('.graph-slot')];
+        assert.equal(slots.length, layout.capacity);
+        for (const [index, slot] of slots.entries()) {
+          assert.equal(slot.style.gridColumn, String(Math.floor(index / layout.rows) + 1));
+          assert.equal(slot.style.gridRow, String(index % layout.rows + 1));
+          assert.equal(slot.querySelector('.graph-identity strong').textContent, `종목${page * layout.capacity + index + 1}`);
+        }
+        if (!page) await user.click(screen.getByRole('button', { name: '다음 종목' }));
+      }
       cleanup();
     }
   } finally { dom.window.HTMLElement.prototype.getBoundingClientRect = originalRect; cleanup(); }
