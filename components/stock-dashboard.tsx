@@ -154,7 +154,7 @@ export function Board({ market, graph, payload, largeText, autoRefresh, error, n
   const asOf = payload?.asOf ? new Date(payload.asOf).toLocaleString('ko-KR', {
     timeZone: sessionFor(market).timeZone, month: '2-digit', day: '2-digit', hour: '2-digit', minute: '2-digit', hourCycle: 'h23',
   }) : '';
-  return <section className="board-section">
+  return <section className={`board-section ${market === 'KOSPI' && graph && !watch ? 'kospi-chart-board' : ''}`}>
     <div ref={area} className={`board-viewport ${graph ? 'graph-viewport' : 'quotes-viewport'}`}>
       {!quotes.length ? <output className="board-empty">{error ?? (watch ? '위 검색창에서 한국·미국 관심종목을 추가하세요.' : `${marketLabel(market)} 시세를 불러오고 있습니다.`)}</output> : graph ?
         <div className="graph-grid" style={{ gridTemplateColumns: `repeat(${layout.columns}, minmax(0, 1fr))`, gridTemplateRows: `repeat(${layout.rows}, ${Math.max(1, layout.rowHeight - 1)}px)` }}>

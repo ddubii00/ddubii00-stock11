@@ -67,6 +67,7 @@ test('small watchlists use normal row height, minute trends, and cell-local dele
   try {
     for (const graph of [false, true]) {
       const { container } = render(React.createElement(Harness, { graph }));
+      assert.equal(container.querySelector('.kospi-chart-board'), null);
       const button = screen.getByRole('button', { name: '삼성전자 관심종목 삭제' });
       assert.equal(button.closest('a'), null);
       assert.ok(button.closest(graph ? '.graph-slot' : 'tr'));
@@ -91,6 +92,7 @@ test('quote and chart backgrounds toggle highlights independently of name links,
     const quote = { ...samsung, price: 99900, previousClose: 99000, change: .91, changePrice: 900, asOf: '2026-09-07T15:30:00+09:00', turnover: '', marketStatus: 'CLOSE' };
     const props = { market: 'KOSPI', graph: false, payload: { stocks: [quote], indices: [], marketStatus: 'CLOSE', asOf: quote.asOf, source: 'test' }, largeText: true, autoRefresh: false, now: Date.parse('2026-09-08T09:00:00+09:00'), provider };
     const view = render(React.createElement(Board, props));
+    assert.equal(view.container.querySelector('.kospi-chart-board'), null);
     const toggle = () => screen.getByRole('button', { name: '삼성전자 노란색 표시' });
     assert.equal(toggle().getAttribute('aria-pressed'), 'false');
     await user.click(view.container.querySelector('.current-price'));
@@ -110,6 +112,7 @@ test('quote and chart backgrounds toggle highlights independently of name links,
     await user.keyboard(' ');
     assert.equal(toggle().getAttribute('aria-pressed'), 'true');
     view.rerender(React.createElement(Board, { ...next, graph: true }));
+    assert.ok(view.container.querySelector('.kospi-chart-board'));
     assert.equal(toggle().getAttribute('aria-pressed'), 'true');
     assert.equal(view.container.querySelector('.graph-card').dataset.highlighted, 'true');
     assert.equal(view.container.querySelectorAll('.graph-card a').length, 1);
