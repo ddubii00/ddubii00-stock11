@@ -73,12 +73,13 @@ test('adaptive price boards fit their panel without scrolling or skipped stocks'
   }
 });
 
-test('wide displays show 100+ quotes and 40–52 compact charts, without shrinking prices', () => {
+test('wide displays show 100+ quotes and 52–64 compact charts, without shrinking prices', () => {
   assert.equal(fitBoard(1896, 1000, false, true).capacity, 128);
   assert.equal(fitBoard(1576, 800, false, true).capacity, 100);
-  assert.equal(fitBoard(1896, 1000, true, true).capacity, 52);
-  assert.equal(fitBoard(1416, 800, true, true).capacity, 44);
-  assert.ok(fitBoard(1896, 1000, true, true).rowHeight >= 72);
+  assert.equal(fitBoard(1896, 1000, true, true).capacity, 64);
+  assert.equal(fitBoard(1416, 800, true, true).capacity, 52);
+  assert.ok(fitBoard(1896, 1000, true, true).rowHeight >= 60);
+  assert.ok(fitBoard(1896, 1000, true, true).rowHeight < 72);
 });
 
 test('iPad portrait uses two columns and landscape uses three', () => {
