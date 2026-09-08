@@ -225,9 +225,9 @@ a { color: inherit; text-decoration: none; }
 /* Zero-minimum tracks reserve chart space independently of price/rate digit counts. */
 .index-item { display: grid; position: relative; grid-template-columns: minmax(0, 1fr) 58px minmax(0, .85fr); gap: 0 5px; align-items: center; justify-content: start; padding-inline: 9px; }
 .index-label { grid-column: 1; grid-row: 1; font-size: 12px; line-height: 1.1; }
-.index-item strong { grid-column: 1/3; grid-row: 2; font-size: 16px; font-weight: 750; line-height: 1.1; }
+.index-item strong { grid-column: 1/3; grid-row: 2; font-size: 14px; font-weight: 750; line-height: 1.1; }
 .index-item > :not(.mini-chart) { min-width: 0; max-width: 100%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.index-change { grid-column: 2; grid-row: 1; font-size: 14px; line-height: 1; justify-self: end; }
+.index-change { grid-column: 2; grid-row: 1; font-size: 13px; line-height: 1; justify-self: end; }
 .mini-chart { grid-column: 3; grid-row: 1/3; width: 100%; min-width: 0; height: 26px; margin: 0; overflow: hidden; }
 .mini-chart .price-line { stroke-width: 1.3; }
 .mini-chart .spark-baseline { stroke-width: .7; }
@@ -260,7 +260,7 @@ a { color: inherit; text-decoration: none; }
   .market-tab-list button { font-size: 10px; padding-inline: 4px; }
   .index-item { padding-inline: 5px; gap: 0 3px; }
   .index-label { font-size: 11px; }
-  .index-item strong { font-size: 15px; }
+  .index-item strong { font-size: 14px; }
   .graph-card { column-gap: 5px; padding-inline: 6px; }
   .graph-identity strong { font-size: 14px; }
   .graph-price .current-price { font-size: 20px; }
