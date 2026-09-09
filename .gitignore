@@ -39,3 +39,6 @@ next-env.d.ts
 /outputs/
 /work/
 *.tsbuildinfo
+*.sqlite
+*.sqlite-shm
+*.sqlite-wal

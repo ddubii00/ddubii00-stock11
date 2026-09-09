@@ -1,4 +1,5 @@
 import { redisKey, withRedis } from './redis';
+import { sqliteStore } from './sqlite-store';
 
 export type Store = {
   get(key: string): Promise<string | null>;
@@ -16,7 +17,11 @@ export function redisStore(): Store {
   };
 }
 export function syncConfiguration() {
-  if (process.env.STOCK11_SYNC_ENABLED === 'false' || !process.env.REDIS_URL) return null;
+  if (process.env.STOCK11_SYNC_ENABLED === 'false') return null;
+  const requested = process.env.STOCK11_PROFILE_STORE?.toLowerCase();
+  if (requested && requested !== 'redis' && requested !== 'sqlite') throw new Error('서버 저장 방식 설정 오류');
+  const store = requested ?? (process.env.REDIS_URL ? 'redis' : null);
+  if (!store || (store === 'redis' && !process.env.REDIS_URL)) return null;
   const password = process.env.STOCK11_SYNC_PASSWORD ?? '';
   // A Redis connection alone must never enable public state access or writes.
   if (!password) return null;
@@ -27,9 +32,10 @@ export function syncConfiguration() {
     if (parsed.origin !== origin || (parsed.protocol !== 'https:' && !['localhost', '127.0.0.1'].includes(parsed.hostname))) throw new Error('HTTPS 접속 주소 설정 오류');
   }
   const userId = process.env.STOCK11_USER_ID || 'personal';
-  return { password, origin, userId, namespace: redisKey('user', userId) };
+  return { password, origin, userId, namespace: redisKey('user', userId), store, location: store === 'sqlite' ? 'Oracle 서버' : 'Redis Cloud' };
 }
 export async function configuredStore(): Promise<Store> {
-  if (!syncConfiguration()) throw new Error('서버 저장 설정이 필요합니다.');
-  return redisStore();
+  const config = syncConfiguration();
+  if (!config) throw new Error('서버 저장 설정이 필요합니다.');
+  return config.store === 'sqlite' ? sqliteStore() : redisStore();
 }

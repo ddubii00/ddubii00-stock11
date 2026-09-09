@@ -9,10 +9,13 @@ services:
     restart: unless-stopped
     ports:
       - "127.0.0.1:${STOCK11_PORT:-3011}:3000"
+    volumes:
+      - stock11-profile:/app/data
     environment:
       STOCK11_DATA_PROVIDER: kis
       KIS_RELAY_URL: http://kis-relay:8091
-      REDIS_URL: ${REDIS_URL:-}
+      STOCK11_PROFILE_STORE: sqlite
+      STOCK11_SQLITE_PATH: /app/data/stock11-profile.sqlite
       STOCK11_SYNC_ENABLED: ${STOCK11_SYNC_ENABLED:-true}
       STOCK11_SYNC_PASSWORD: ${STOCK11_SYNC_PASSWORD:-}
       STOCK11_SYNC_ORIGIN: ${STOCK11_SYNC_ORIGIN:-}
@@ -40,3 +43,6 @@ services:
     read_only: true
     security_opt:
       - no-new-privileges:true
+
+volumes:
+  stock11-profile:

@@ -17,10 +17,11 @@ import { useStockHighlights } from '@/hooks/use-stock-highlights';
 import { useServerProfile } from '@/hooks/use-server-profile';
 import { ProfileLogin } from '@/components/profile-login';
 import type { HighlightColor } from '@/lib/stock-highlights';
+import type { TextScale } from '@/lib/profile';
 import type { IndexQuote, Market, MarketPayload, MinuteSeries, Quote, StockSelection } from '@/lib/market-types';
 
-const markets: Market[] = ['KOSPI', 'KOSDAQ', 'NASDAQ', 'DOW', 'SP500'];
-const marketLabel = (market: Market) => market === 'SP500' ? 'S&P500' : market === 'DOW' ? 'Dow' : market;
+const markets: Market[] = ['KOSPI', 'KOSDAQ', 'NASDAQ', 'SP500'];
+const marketLabel = (market: Market) => market === 'SP500' ? 'S&P500' : market;
 const isUS = (market: Market) => market !== 'KOSPI' && market !== 'KOSDAQ';
 const views = markets.flatMap((market) => [
   { value: market.toLowerCase(), market, graph: false, label: marketLabel(market) },
@@ -46,8 +47,8 @@ function Price({ quote, market }: { quote: Quote; market: Market }) {
   return <strong className={`current-price ${tone(quote.change)}`}>{isUS(market) ? '$' : ''}{formatted(quote.price, market)}</strong>;
 }
 
-export function Board({ market, graph, payload, largeText, autoRefresh, error, now, provider, watch = false, onRemove, onReorder, highlighted, onHighlight }: {
-  market: Market; graph: boolean; payload?: MarketPayload; largeText: boolean;
+export function Board({ market, graph, payload, largeText, textScale = largeText ? 1 : 0, autoRefresh, error, now, provider, watch = false, onRemove, onReorder, highlighted, onHighlight }: {
+  market: Market; graph: boolean; payload?: MarketPayload; largeText: boolean; textScale?: TextScale;
   autoRefresh: boolean; error?: string; now: number; provider: 'naver' | 'kis';
   watch?: boolean; onRemove?: (quote: Quote) => void;
   onReorder?: (source: string, target: string) => void;
@@ -91,7 +92,7 @@ export function Board({ market, graph, payload, largeText, autoRefresh, error, n
     return tick && provider === 'kis' && (quote.marketStatus ?? payload?.marketStatus) === 'OPEN' && Date.parse(tick.asOf) >= Date.parse(quote.asOf)
       ? { ...quote, price: tick.price, change: tick.change, changePrice: tick.changePrice, previousClose: tick.previousClose, asOf: tick.asOf } : quote;
   });
-  const layout = fitBoard(size.width, size.height, graph, largeText, quotes.length || 200);
+  const layout = fitBoard(size.width, size.height, graph, largeText, quotes.length || 200, textScale);
   const pageCount = Math.max(1, Math.ceil(quotes.length / layout.capacity));
   const currentPage = Math.min(page, pageCount - 1);
   const offset = currentPage * layout.capacity;
@@ -283,12 +284,19 @@ export function StockDashboard() {
   const [indices, setIndices] = useState<IndexQuote[]>([]);
   const [errors, setErrors] = useState<Partial<Record<Market, string>>>({});
   const [autoRefresh, setAutoRefresh] = useState(true);
-  const [localLargeText, setLocalLargeText] = useState(true);
-  const largeText = sync.enabled && (sync.phase === 'ready' || sync.phase === 'cached') ? sync.profile.settings.largeText : localLargeText;
-  const setLargeText = (change: (value: boolean) => boolean) => {
-    const next = change(largeText);
-    if (sync.enabled) sync.send({ type: 'settings', largeText: next });
-    else { setLocalLargeText(next); try { localStorage.setItem('stock11.large-text.v1', JSON.stringify(next)); } catch { /* Browser preferences remain usable. */ } }
+  const [localTextScale, setLocalTextScale] = useState<TextScale>(1);
+  const textScale = sync.enabled && (sync.phase === 'ready' || sync.phase === 'cached') ? sync.profile.settings.textScale : localTextScale;
+  const largeText = textScale > 0;
+  const cycleTextScale = () => {
+    const next = ((textScale + 1) % 3) as TextScale;
+    if (sync.enabled) sync.send({ type: 'settings', largeText: next > 0, textScale: next });
+    else {
+      setLocalTextScale(next);
+      try {
+        localStorage.setItem('stock11.text-scale.v1', JSON.stringify(next));
+        localStorage.setItem('stock11.large-text.v1', JSON.stringify(next > 0));
+      } catch { /* Browser preferences remain usable. */ }
+    }
   };
   const [tab, setTab] = useState('kospi');
   const [now, setNow] = useState(0);
@@ -319,8 +327,16 @@ export function StockDashboard() {
   const inFlight = useRef(false);
 
   useEffect(() => {
-    // eslint-disable-next-line react/react-compiler -- Restore browser-only text-size preference after hydration.
-    try { const saved = localStorage.getItem('stock11.large-text.v1'); if (saved === 'true' || saved === 'false') setLocalLargeText(saved === 'true'); } catch { /* Optional UI preference. */ }
+    try {
+      const scale = Number(localStorage.getItem('stock11.text-scale.v1'));
+      // eslint-disable-next-line react/react-compiler -- Restore browser-only text-size preference after hydration.
+      if (scale === 0 || scale === 1 || scale === 2) setLocalTextScale(scale);
+      else {
+        const saved = localStorage.getItem('stock11.large-text.v1');
+        // eslint-disable-next-line react/react-compiler -- Migrate the previous boolean text preference.
+        if (saved === 'true' || saved === 'false') setLocalTextScale(saved === 'true' ? 1 : 0);
+      }
+    } catch { /* Optional UI preference. */ }
     // eslint-disable-next-line react/react-compiler -- Read browser-only persistence after hydration, never during the server render.
     try { setLocalWatchlist(restoreWatchlist(localStorage.getItem(WATCHLIST_KEY))); }
     catch { setStorageError('브라우저 저장소 사용 불가 · 이번 화면에서만 유지됩니다.'); }
@@ -420,7 +436,7 @@ export function StockDashboard() {
     asOf: savedQuotes.reduce((latest, quote) => quote.asOf > latest ? quote.asOf : latest, ''), source: '네이버 증권',
   };
 
-  return <main className={`terminal-shell ${largeText ? 'large-text' : 'compact'}`}>
+  return <main className={`terminal-shell text-size-${textScale} ${largeText ? 'large-text' : 'compact'}`}>
     <Tabs value={tab} onValueChange={(value) => setTab(String(value))} className="market-tabs">
     <header className="terminal-header">
       <h1 className="brand-lockup">STOCK<span>11</span></h1>
@@ -437,30 +453,32 @@ export function StockDashboard() {
         {['KOSPI', 'KOSDAQ', 'USD/KRW', 'NASDAQ', 'S&P 500'].map((label) => {
           const item = indices.find((index) => index.label === label);
           return <div className="index-item" key={label} title={item?.asOf ? `${label} · ${new Date(item.asOf).toLocaleString('ko-KR')}` : `${label} 수신 대기`}>
-            <span className="index-label">{label}</span>
-            <strong className={item ? tone(item.change) : ''}>{item ? item.value.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 }) : '—'}</strong>
-            {item && <span className={`index-change ${tone(item.change)}`}>{item.change > 0 ? '+' : ''}{item.change.toFixed(2)}%</span>}
+            <div className="index-data">
+              <span className="index-label">{label}</span>
+              <strong className={item ? tone(item.change) : ''}>{item ? item.value.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 }) : '—'}</strong>
+              {item && <span className={`index-change ${tone(item.change)}`}>{item.change > 0 ? '+' : ''}{item.change.toFixed(2)}%</span>}
+            </div>
             <Sparkline mini series={indexSeries[label]} name={label} now={now} />
           </div>;
         })}
       </div>
       <div className="header-actions">
-        <ProfileLogin sync={sync} localImport={{ type: 'import', watchlist: localWatchlist, highlights: [...localHighlights], largeText: localLargeText }} />
+        <ProfileLogin sync={sync} localImport={{ type: 'import', watchlist: localWatchlist, highlights: [...localHighlights], largeText: localTextScale > 0, textScale: localTextScale }} />
         <span className="refresh-status" title={provider === 'kis' ? 'KIS 체결 수신 · 연결 상태와 구독 수는 하단 표시 · 미구독 종목과 지수는 30초 갱신' : '시세와 분봉을 30초마다 갱신합니다.'}><i className={autoRefresh ? 'on' : ''} />{autoRefresh ? provider === 'kis' ? 'KIS' : '30초' : '멈춤'}</span>
         <Button variant="ghost" size="icon" disabled={busy} onClick={() => void refresh()} aria-label="지금 새로고침" title="지금 새로고침"><RefreshCw className={busy ? 'refreshing' : ''} /></Button>
         <Button variant="ghost" size="icon" onClick={() => setAutoRefresh((value) => !value)} aria-label={autoRefresh ? '자동 갱신 멈춤' : '자동 갱신 시작'} title={autoRefresh ? '자동 갱신 멈춤' : '자동 갱신 시작'}>{autoRefresh ? <Pause /> : <Play />}</Button>
         <Button variant="ghost" size="icon" onClick={() => void fullscreen()} aria-label="전체 화면" title="전체 화면"><Expand /></Button>
-        <Button variant="ghost" size="icon" onClick={() => setLargeText((value) => !value)} aria-label="글자 크기 전환" title={largeText ? '많이 보기 (큰 글씨 유지)' : '더 큰 글씨'}><Type /></Button>
+        <Button variant="ghost" size="icon" onClick={cycleTextScale} aria-label={`글자 크기 전환 · 현재 ${textScale + 1}단계`} title={`글자 크기 ${textScale + 1}/3 · 누르면 다음 단계`}><Type /></Button>
       </div>
     </header>
       {!sync.enabled && highlightStorageError && <output className="connection-error">{highlightStorageError}</output>}
       {sync.message && <div className="profile-message"><output className="connection-error">{sync.message}</output><Button variant="ghost" onClick={() => void (sync.unsaved ? sync.retry() : sync.refresh())}>{sync.unsaved ? '다시 저장' : '다시 불러오기'}</Button></div>}
       {views.map((view) => <TabsContent key={view.value} value={view.value} className="market-panel">
-        <Board {...view} highlighted={highlighted} onHighlight={onHighlight} payload={data[view.market]} largeText={largeText} autoRefresh={autoRefresh} error={errors[view.market]} now={now} provider={provider} />
+        <Board {...view} highlighted={highlighted} onHighlight={onHighlight} payload={data[view.market]} largeText={largeText} textScale={textScale} autoRefresh={autoRefresh} error={errors[view.market]} now={now} provider={provider} />
       </TabsContent>)}
       {['watchlist', 'watchlist-chart'].map((value) => <TabsContent key={value} value={value} className="market-panel watch-panel">
         <WatchlistToolbar items={watchlist} onChange={setWatchlist} disabled={sync.enabled && sync.phase !== 'ready'} storageError={sync.enabled ? sync.phase !== 'ready' ? '상단 로그인 후 관심종목을 불러오세요.' : '' : storageError} />
-        <Board market="KOSPI" graph={value.endsWith('-chart')} highlighted={highlighted} onHighlight={onHighlight} watch onReorder={reorderWatch} onRemove={removeWatch} payload={watchPayload} largeText={largeText} autoRefresh={autoRefresh} error={watchlist.length ? watchError || (savedQuotes.length ? undefined : '관심종목 시세 수신 중…') : sync.enabled && sync.phase !== 'ready' ? '상단 로그인 후 서버 기록을 불러오세요.' : undefined} now={now} provider={provider} />
+        <Board market="KOSPI" graph={value.endsWith('-chart')} highlighted={highlighted} onHighlight={onHighlight} watch onReorder={reorderWatch} onRemove={removeWatch} payload={watchPayload} largeText={largeText} textScale={textScale} autoRefresh={autoRefresh} error={watchlist.length ? watchError || (savedQuotes.length ? undefined : '관심종목 시세 수신 중…') : sync.enabled && sync.phase !== 'ready' ? '상단 로그인 후 서버 기록을 불러오세요.' : undefined} now={now} provider={provider} />
       </TabsContent>)}
     </Tabs>
   </main>;

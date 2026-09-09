@@ -91,6 +91,15 @@ test('denser chart rows still fit the viewport and preserve space for both price
   }
 });
 
+void test('third T-button stage enlarges quote and chart cells beyond the existing large stage', () => {
+  const largeQuote = fitBoard(1416, 800, false, true, 200, 1);
+  const extraQuote = fitBoard(1416, 800, false, true, 200, 2);
+  const largeChart = fitBoard(1416, 800, true, true, 200, 1);
+  const extraChart = fitBoard(1416, 800, true, true, 200, 2);
+  assert.ok(extraQuote.rowHeight >= 38 && extraQuote.capacity < largeQuote.capacity);
+  assert.ok(extraChart.rowHeight >= 62 && extraChart.capacity < largeChart.capacity);
+});
+
 test('iPad portrait uses two columns and landscape uses three', () => {
   for (const graph of [false, true]) {
     for (const [width, height] of [[810, 1090], [1000, 1260], [744, 920]]) assert.equal(fitBoard(width, height, graph, true).columns, 2);

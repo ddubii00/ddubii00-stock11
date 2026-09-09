@@ -1,7 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { randomUUID } from 'node:crypto';
-import { applyOperation, parseOperation, restoreProfile } from '../lib/profile.ts';
+import { applyOperation, emptyProfile, parseOperation, restoreProfile } from '../lib/profile.ts';
 import { readProfile, updateProfile, login, authenticated, logout } from '../lib/profile-service.ts';
 import { checkOrigin, jsonBody, sessionCookie, tokenFrom } from '../lib/profile-http.ts';
 import { redisKey, closeRedis, getRedis } from '../lib/redis.ts';
@@ -27,6 +27,7 @@ void test('precise atomic operations preserve concurrent additions, colors, orde
   const moved = await updateProfile(store, ns, id, move);
   assert.equal(moved.watchlist[0].code, 'QQQ');
   assert.equal(moved.settings.largeText, false);
+  assert.equal(moved.settings.textScale, 0);
   assert.deepEqual(moved.highlights, [['KOSPI:005930', 'yellow']]);
   assert.deepEqual(await updateProfile(store, ns, id, move), moved);
   assert.equal(store.data.get(`${ns}:state`).ttl, 0);
@@ -42,10 +43,13 @@ void test('one-time migration never overwrites an existing server record and rej
   const profile = await updateProfile(store, ns, randomUUID(), op);
   assert.equal(profile.watchlist[0].instrumentType, 'etf');
   assert.equal(profile.settings.largeText, false);
+  assert.equal(profile.settings.textScale, 0);
   await assert.rejects(updateProfile(store, ns, randomUUID(), op), /이미 서버 기록/);
   for (const bad of [null, { type: 'flushall' }, { type: 'highlight', key: 'stock11:system:x', color: 'red' }, { type: 'highlight', key: 'KOSPI:005930', color: 'url(x)' }, { type: 'settings', largeText: 'false' }]) assert.throws(() => parseOperation(bad));
   assert.equal(restoreProfile({ ...profile, revision: -1 }), null);
   assert.equal(restoreProfile({ ...profile, settings: { password: 'not-allowed' } }), null);
+  assert.equal(restoreProfile({ ...emptyProfile(), settings: { largeText: true } }).settings.textScale, 1, 'old boolean settings migrate safely');
+  assert.equal(applyOperation(profile, parseOperation({ type: 'settings', largeText: true, textScale: 2 })).settings.textScale, 2);
   assert.deepEqual(restoreProfile(profile), profile);
   assert.deepEqual(applyOperation(profile, { type: 'highlight', key: 'NASDAQ:QQQ.O', color: null }).highlights, []);
 });

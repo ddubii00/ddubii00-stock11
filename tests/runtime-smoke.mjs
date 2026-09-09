@@ -1,9 +1,12 @@
 // Isolated production-server tests. Mock ticks never enter the user's preview.
 import assert from 'node:assert/strict';
 import { spawn } from 'node:child_process';
+import { randomUUID } from 'node:crypto';
 import { createServer } from 'node:http';
 import { once } from 'node:events';
-import { readdirSync } from 'node:fs';
+import { mkdtempSync, readdirSync, rmSync } from 'node:fs';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
 import { setTimeout as delay } from 'node:timers/promises';
 import '../scripts/prepare-standalone.mjs';
 
@@ -25,15 +28,18 @@ async function start(script, env = {}) {
   const reserve = createServer(); await listen(reserve);
   const port = reserve.address().port;
   await new Promise((resolve) => reserve.close(resolve)); servers.delete(reserve);
+  const origin = `http://127.0.0.1:${port}`;
+  const runtimeEnv = { ...env };
+  if (runtimeEnv.STOCK11_SYNC_ORIGIN === '__TEST_ORIGIN__') runtimeEnv.STOCK11_SYNC_ORIGIN = origin;
   const child = spawn(process.execPath, [script], { env: {
     ...process.env, NODE_ENV: 'production', HOSTNAME: '127.0.0.1', PORT: String(port),
     KIS_APP_KEY: '', KIS_APP_SECRET: '', KIS_RELAY_PORT: String(port), KIS_RELAY_HOST: '127.0.0.1',
     REDIS_URL: '', STOCK11_SYNC_PASSWORD: '', STOCK11_SYNC_ENABLED: 'true',
-    VERCEL: '', STOCK11_DATA_PROVIDER: 'naver', ...env,
+    STOCK11_PROFILE_STORE: '', STOCK11_SQLITE_PATH: '', STOCK11_SYNC_ORIGIN: '',
+    VERCEL: '', STOCK11_DATA_PROVIDER: 'naver', ...runtimeEnv,
   }, stdio: ['ignore', 'pipe', 'pipe'] });
   children.add(child);
   let output = ''; child.stdout.on('data', (value) => { output += value; }); child.stderr.on('data', (value) => { output += value; });
-  const origin = `http://127.0.0.1:${port}`;
   const health = script.includes('kis-relay') ? '/health' : '/api/health';
   for (let attempt = 0; attempt < 100; attempt++) {
     if (child.exitCode !== null) throw new Error(`Server exited: ${output}`);
@@ -41,6 +47,14 @@ async function start(script, env = {}) {
     await delay(200);
   }
   throw new Error(`Server startup timeout: ${output}`);
+}
+
+async function login(origin, password) {
+  const response = await fetch(origin + '/api/session', {
+    method: 'POST', headers: { origin, 'content-type': 'application/json' }, body: JSON.stringify({ password }),
+  });
+  if (response.status !== 200) throw new Error(`Login failed (${response.status}): ${await response.text()}`);
+  return response.headers.get('set-cookie').split(';', 1)[0];
 }
 async function streamText(url, expected) {
   const response = await fetch(url, { signal: AbortSignal.timeout(5000) });
@@ -57,6 +71,9 @@ async function streamText(url, expected) {
   return output;
 }
 
+const sqliteDirectory = mkdtempSync(join(tmpdir(), 'stock11-runtime-'));
+const sqlitePath = join(sqliteDirectory, 'profile.sqlite');
+const oraclePassword = 'oracle-test-password';
 try {
   const vercel = await start('.next/standalone/server.js', { VERCEL: '1', STOCK11_DATA_PROVIDER: 'kis' });
   assert.equal((await fetch(vercel.origin + '/')).status, 200);
@@ -94,8 +111,19 @@ try {
     response.write('event: quote\ndata: {"code":"005930","price":12345,"testOnly":true}\n\n');
   });
   const relayOrigin = await listen(mock);
-  const oracle = await start('.next/standalone/server.js', { STOCK11_DATA_PROVIDER: 'kis', KIS_RELAY_URL: relayOrigin });
+  const oracle = await start('.next/standalone/server.js', {
+    STOCK11_DATA_PROVIDER: 'kis', KIS_RELAY_URL: relayOrigin, STOCK11_PROFILE_STORE: 'sqlite',
+    STOCK11_SQLITE_PATH: sqlitePath, STOCK11_SYNC_PASSWORD: oraclePassword, STOCK11_SYNC_ORIGIN: '__TEST_ORIGIN__',
+  });
   assert.equal((await (await fetch(oracle.origin + '/api/runtime')).json()).provider, 'kis');
+  const oracleSession = await (await fetch(oracle.origin + '/api/session')).json();
+  assert.equal(oracleSession.enabled, true); assert.equal(oracleSession.authenticated, false); assert.equal(oracleSession.location, 'Oracle 서버');
+  const cookie = await login(oracle.origin, oraclePassword);
+  const update = await fetch(oracle.origin + '/api/profile', {
+    method: 'PATCH', headers: { origin: oracle.origin, cookie, 'content-type': 'application/json' },
+    body: JSON.stringify({ id: randomUUID(), operation: { type: 'add', item: { market: 'KOSPI', code: '005930', chartCode: '005930', name: '삼성전자' } } }),
+  });
+  assert.equal(update.status, 200);
   const text = await streamText(oracle.origin + '/api/live?market=KOSPI&codes=005930', 'testOnly');
   assert.match(text, /12345/);
   for (let attempt = 0; activeStreams && attempt < 30; attempt++) await delay(100);
@@ -103,8 +131,17 @@ try {
   mock.closeAllConnections(); await new Promise((resolve) => mock.close(resolve)); servers.delete(mock);
   assert.equal((await fetch(oracle.origin + '/api/live?market=KOSPI&codes=005930')).status, 503);
   await stop(oracle.child);
-  console.info('PASS Oracle mode: runtime switch, simulated SSE quote forwarding, cancellation, relay-failure fallback.');
+  const restartedOracle = await start('.next/standalone/server.js', {
+    STOCK11_PROFILE_STORE: 'sqlite', STOCK11_SQLITE_PATH: sqlitePath, STOCK11_SYNC_PASSWORD: oraclePassword,
+    STOCK11_SYNC_ORIGIN: '__TEST_ORIGIN__',
+  });
+  const restartedCookie = await login(restartedOracle.origin, oraclePassword);
+  const persisted = await (await fetch(restartedOracle.origin + '/api/profile', { headers: { cookie: restartedCookie } })).json();
+  assert.deepEqual(persisted.profile.watchlist.map((item) => item.code), ['005930']);
+  await stop(restartedOracle.child);
+  console.info('PASS Oracle mode: runtime switch, SQLite login/persistence, simulated SSE forwarding and fallback.');
 } finally {
   await Promise.all([...children].map(stop));
   for (const server of servers) { server.closeAllConnections(); server.close(); }
+  rmSync(sqliteDirectory, { recursive: true, force: true });
 }

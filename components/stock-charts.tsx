@@ -25,7 +25,7 @@ export function Sparkline({ series: snapshot, tick, name, now, mini = false }: {
   const detail = `${name} · ${series?.date ?? ''} · 전일 ${series?.previousClose ?? '미수신'} · ${model?.last ? `${minuteLabel(model.last.minute)}까지 ${fx ? '실제 고시환율 · 분 단위' : '실제 분봉'}` : '분봉 미수신'}`;
   return <div className={`chart-area ${mini ? 'mini-chart' : ''}`} title={detail}>
     <svg className="sparkline" viewBox={`0 0 ${width} ${height}`} preserveAspectRatio="none" role="img" aria-label={detail}>
-      <title>{detail} · {fx ? '한국 주식장 기준 09:00–15:30 고정축 (외환시장 전체 거래시간 아님)' : '정규장 전체 시간축'} · 가격 범위 자동 조절</title>
+      <title>{`${detail} · ${fx ? '한국 주식장 기준 09:00–15:30 고정축 (외환시장 전체 거래시간 아님)' : '정규장 전체 시간축'} · 가격 범위 자동 조절`}</title>
       {baseline !== null && <>
         <line x1={left} x2={right} y1={baseline} y2={baseline} className="spark-baseline" vectorEffect="non-scaling-stroke" />
         <defs>

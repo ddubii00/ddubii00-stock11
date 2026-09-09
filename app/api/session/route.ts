@@ -8,7 +8,7 @@ export async function GET(request: Request) {
     const config = syncConfiguration();
     if (!config) return privateJson({ enabled: false, authenticated: false });
     const store = await configuredStore();
-    return privateJson({ enabled: true, authenticated: await authenticated(store, config.namespace, config.password, tokenFrom(request, config.namespace)), location: 'Redis Cloud' });
+    return privateJson({ enabled: true, authenticated: await authenticated(store, config.namespace, config.password, tokenFrom(request, config.namespace)), location: config.location });
   } catch (error) { return profileFailure(error); }
 }
 export async function POST(request: Request) {
