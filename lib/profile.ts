@@ -2,7 +2,7 @@ import type { StockSelection } from './market-types';
 import { restoreWatchlist, symbolKey } from './watchlist';
 import { restoreHighlights, type HighlightColor } from './stock-highlights';
 
-export type TextScale = 0 | 1 | 2;
+export type TextScale = 0 | 1 | 2 | 3 | 4;
 export type Profile = { version: 1; revision: number; updatedAt: string | null; watchlist: StockSelection[]; highlights: [string, HighlightColor][]; settings: { largeText: boolean; textScale: TextScale } };
 export type ProfileOperation =
   | { type: 'add'; item: StockSelection }
@@ -13,7 +13,7 @@ export type ProfileOperation =
   | { type: 'import'; watchlist: StockSelection[]; highlights: [string, HighlightColor][]; largeText?: boolean; textScale?: TextScale };
 export const emptyProfile = (): Profile => ({ version: 1, revision: 0, updatedAt: null, watchlist: [], highlights: [], settings: { largeText: true, textScale: 1 } });
 const validKey = (key: unknown): key is string => typeof key === 'string' && /^(KOSPI|KOSDAQ|NASDAQ|NYSE|AMEX):[A-Za-z0-9.^-]{1,24}$/.test(key);
-const validTextScale = (value: unknown): value is TextScale => value === 0 || value === 1 || value === 2;
+const validTextScale = (value: unknown): value is TextScale => Number.isInteger(value) && Number(value) >= 0 && Number(value) <= 4;
 export function parseOperation(value: unknown): ProfileOperation {
   if (!value || typeof value !== 'object') throw new Error('잘못된 변경 요청입니다.');
   const op = value as Record<string, unknown>;

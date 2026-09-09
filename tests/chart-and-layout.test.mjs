@@ -91,11 +91,17 @@ test('denser chart rows still fit the viewport and preserve space for both price
   }
 });
 
-void test('third T-button stage enlarges quote and chart cells beyond the existing large stage', () => {
+void test('five T-button stages progressively enlarge quote and chart cells', () => {
   const largeQuote = fitBoard(1416, 800, false, true, 200, 1);
   const extraQuote = fitBoard(1416, 800, false, true, 200, 2);
+  const largestQuote = fitBoard(1416, 800, false, true, 200, 4);
   const largeChart = fitBoard(1416, 800, true, true, 200, 1);
   const extraChart = fitBoard(1416, 800, true, true, 200, 2);
+  const largestChart = fitBoard(1416, 800, true, true, 200, 4);
+  assert.ok(largestQuote.rowHeight > extraQuote.rowHeight);
+  assert.ok(largestQuote.capacity < extraQuote.capacity);
+  assert.ok(largestChart.rowHeight > extraChart.rowHeight);
+  assert.ok(largestChart.capacity < extraChart.capacity);
   assert.ok(extraQuote.rowHeight >= 38 && extraQuote.capacity < largeQuote.capacity);
   assert.ok(extraChart.rowHeight >= 62 && extraChart.capacity < largeChart.capacity);
 });

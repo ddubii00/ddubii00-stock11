@@ -50,6 +50,8 @@ void test('one-time migration never overwrites an existing server record and rej
   assert.equal(restoreProfile({ ...profile, settings: { password: 'not-allowed' } }), null);
   assert.equal(restoreProfile({ ...emptyProfile(), settings: { largeText: true } }).settings.textScale, 1, 'old boolean settings migrate safely');
   assert.equal(applyOperation(profile, parseOperation({ type: 'settings', largeText: true, textScale: 2 })).settings.textScale, 2);
+  assert.equal(applyOperation(profile, parseOperation({ type: 'settings', largeText: true, textScale: 4 })).settings.textScale, 4);
+  assert.throws(() => parseOperation({ type: 'settings', largeText: true, textScale: 5 }));
   assert.deepEqual(restoreProfile(profile), profile);
   assert.deepEqual(applyOperation(profile, { type: 'highlight', key: 'NASDAQ:QQQ.O', color: null }).highlights, []);
 });
