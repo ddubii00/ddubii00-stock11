@@ -214,7 +214,7 @@ test('chart ranking runs down each column before moving right, including subsequ
   } finally { dom.window.HTMLElement.prototype.getBoundingClientRect = originalRect; cleanup(); }
 });
 
-test('watchlist double-click highlights red and handle-only dragging reorders without deleting or navigating', async () => {
+test('watchlist double-click highlights red and background dragging reorders without deleting or navigating', async () => {
   const originalRect = dom.window.HTMLElement.prototype.getBoundingClientRect;
   dom.window.HTMLElement.prototype.getBoundingClientRect = () => ({ width: 1600, height: 800, top: 0, left: 0, right: 1600, bottom: 800, x: 0, y: 0, toJSON() {} });
   globalThis.fetch = async () => Response.json({ series: {}, errors: {} });
@@ -228,8 +228,7 @@ test('watchlist double-click highlights red and handle-only dragging reorders wi
     for (const graph of [false, true]) {
       const { container } = render(React.createElement(Harness, { graph }));
       const toggle = () => screen.getByRole('button', { name: '삼성전자 배경 표시' });
-      const handle = (name) => screen.getByRole('button', { name: `${name} 순서 이동` });
-      const cell = (name) => handle(name).closest(graph ? '.graph-slot' : 'tr');
+      const cell = (name) => screen.getByRole('link', { name: new RegExp(`^${name}`) }).closest(graph ? '.graph-slot' : 'tr');
       const background = graph ? toggle() : cell('삼성전자').querySelector('.current-price');
       const color = () => toggle().closest(graph ? '.graph-card' : 'tr').dataset.highlightColor;
       assert.ok(container.querySelector('.watch-board'));
@@ -251,34 +250,36 @@ test('watchlist double-click highlights red and handle-only dragging reorders wi
       assert.equal(color(), 'yellow');
       await user.dblClick(container.querySelector('a'));
       assert.equal(toggle().getAttribute('aria-pressed'), 'true');
-      assert.equal(handle('삼성전자').closest('a'), null);
-      assert.equal(handle('삼성전자').draggable, true);
-      const order = () => [...container.querySelectorAll('[data-reorder-key]')].map((button) => button.dataset.reorderKey);
+      assert.equal(screen.queryByRole('button', { name: '삼성전자 순서 이동' }), null);
+      assert.equal(cell('삼성전자').draggable, true);
+      const order = () => [...container.querySelectorAll('[data-reorder-key]')].map((item) => item.dataset.reorderKey);
       const initial = order();
       const dataTransfer = { effectAllowed: '', dropEffect: '', setData() {}, setDragImage() {} };
       // An unrelated external drag cannot reorder the watchlist.
       fireEvent.drop(cell('애플'), { dataTransfer });
       assert.deepEqual(order(), initial);
-      fireEvent.dragStart(handle('삼성전자'), { dataTransfer });
+      fireEvent.dragStart(cell('삼성전자'), { dataTransfer });
       assert.equal(dataTransfer.effectAllowed, 'move');
       fireEvent.dragOver(cell('삼성SDI'), { dataTransfer });
       assert.equal(cell('삼성SDI').dataset.dropTarget, 'true');
       fireEvent.drop(cell('삼성SDI'), { dataTransfer });
-      fireEvent.dragEnd(handle('삼성전자'), { dataTransfer });
+      fireEvent.dragEnd(cell('삼성전자'), { dataTransfer });
       assert.deepEqual(order(), ['NASDAQ:AAPL.O', 'KOSPI:006400', 'KOSPI:005930']);
       assert.equal(toggle().getAttribute('aria-pressed'), 'true');
       assert.equal(color(), 'yellow');
       assert.match(screen.getByRole('status').textContent, /삼성전자 3번째/);
-      handle('삼성전자').focus(); await user.keyboard('{Home}');
+      fireEvent.dragStart(cell('삼성전자'), { dataTransfer });
+      fireEvent.dragOver(cell('애플'), { dataTransfer });
+      fireEvent.drop(cell('애플'), { dataTransfer });
+      fireEvent.dragEnd(cell('삼성전자'), { dataTransfer });
       assert.deepEqual(order(), initial);
       // Cancelling a drag leaves the order unchanged and clears the destination.
-      fireEvent.dragStart(handle('삼성전자'), { dataTransfer });
+      fireEvent.dragStart(cell('삼성전자'), { dataTransfer });
       fireEvent.dragOver(cell('애플'), { dataTransfer });
-      fireEvent.dragEnd(handle('삼성전자'), { dataTransfer });
+      fireEvent.dragEnd(cell('삼성전자'), { dataTransfer });
       assert.equal(cell('애플').dataset.dropTarget, 'false');
       assert.deepEqual(order(), initial);
       await user.click(screen.getByRole('button', { name: '삼성전자 관심종목 삭제' }));
-      assert.equal(screen.queryByRole('button', { name: '삼성전자 순서 이동' }), null);
       assert.equal(order().length, 2);
       cleanup();
     }

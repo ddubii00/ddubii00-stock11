@@ -96,7 +96,7 @@ export function Board({ market, graph, payload, largeText, autoRefresh, error, n
   const currentPage = Math.min(page, pageCount - 1);
   const offset = currentPage * layout.capacity;
   const visible = quotes.slice(offset, offset + layout.capacity);
-  const hasActions = Boolean(onRemove || (watch && onReorder));
+  const hasActions = Boolean(onRemove);
   const quoteKey = (quote: Quote) => symbolKey({ market: quote.market ?? market, chartCode: quote.chartCode });
   const endDrag = () => { dragSource.current = null; setDropTarget(null); };
   const moveStock = (source: string, target: string) => {
@@ -108,6 +108,19 @@ export function Board({ market, graph, payload, largeText, autoRefresh, error, n
     setMoveMessage(`${from.name} ${to + 1}번째로 이동했습니다.`);
   };
   const dropEvents = (key: string) => watch && onReorder ? {
+    draggable: true,
+    'data-reorder-key': key,
+    onDragStart: (event: DragEvent) => {
+      if ((event.target as Element).closest('a, .stock-remove')) {
+        event.preventDefault();
+        return;
+      }
+      dragSource.current = key;
+      event.dataTransfer.effectAllowed = 'move';
+      event.dataTransfer.setData('text/plain', key);
+      event.dataTransfer.setDragImage(event.currentTarget, 12, 12);
+    },
+    onDragEnd: endDrag,
     onDragOver: (event: DragEvent) => {
       if (!dragSource.current) return;
       event.preventDefault(); event.dataTransfer.dropEffect = 'move';
@@ -122,30 +135,6 @@ export function Board({ market, graph, payload, largeText, autoRefresh, error, n
       moveStock(dragSource.current, key); endDrag();
     },
   } : {};
-  const reorderHandle = (quote: Quote, key: string) => watch && onReorder && <Button
-    variant="ghost" size="icon" className="stock-reorder" draggable data-reorder-key={key}
-    aria-label={`${quote.name} 순서 이동`} title="드래그해서 순서 이동 · 키보드 ↑↓, Home, End"
-    onClick={(event) => event.stopPropagation()} onDoubleClick={(event) => event.stopPropagation()}
-    onDragStart={(event) => {
-      dragSource.current = key; event.dataTransfer.effectAllowed = 'move';
-      event.dataTransfer.setData('text/plain', key);
-      const cell = event.currentTarget.closest('.graph-slot, tr');
-      if (cell) event.dataTransfer.setDragImage(cell, 12, 12);
-    }} onDragEnd={endDrag}
-    onKeyDown={(event) => {
-      const index = quotes.findIndex((item) => quoteKey(item) === key);
-      const destination = event.key === 'ArrowUp' ? index - 1 : event.key === 'ArrowDown' ? index + 1
-        : event.key === 'Home' ? 0 : event.key === 'End' ? quotes.length - 1 : null;
-      if (destination === null) return;
-      event.preventDefault(); event.stopPropagation();
-      if (!quotes[destination]) return;
-      moveStock(key, quoteKey(quotes[destination]));
-      setPage(Math.floor(destination / layout.capacity));
-      requestAnimationFrame(() => {
-        Array.from(area.current?.querySelectorAll<HTMLButtonElement>('[data-reorder-key]') ?? [])
-          .find((button) => button.dataset.reorderKey === key)?.focus();
-      });
-    }}><span aria-hidden="true">=</span></Button>;
   const codes = graph ? visible.map((quote) => symbolKey({ market: quote.market ?? market, chartCode: quote.chartCode })).join(',') : '';
   const liveCodes = visible.filter((quote) => (quote.marketStatus ?? payload?.marketStatus) === 'OPEN').map((quote) => symbolKey({ market: quote.market ?? market, chartCode: quote.chartCode })).join(',');
 
@@ -244,7 +233,6 @@ export function Board({ market, graph, payload, largeText, autoRefresh, error, n
               {chartErrors[key] && <span className="chart-error">{chartErrors[key]}</span>}
               </div>
               {onRemove && <Button variant="ghost" size="icon" className="stock-remove" aria-label={`${quote.name} 관심종목 삭제`} title="관심종목 삭제" onClick={() => onRemove(quote)}><X /></Button>}
-              {reorderHandle(quote, key)}
             </div>;
           })}
         </div> :
@@ -265,7 +253,7 @@ export function Board({ market, graph, payload, largeText, autoRefresh, error, n
                 <TableCell className="stock-name" title={`${quote.name} (${quote.code}) · ${quote.market} ${statusLabel(quote.marketStatus)} · ${quote.asOf} · 거래대금 ${quote.turnover}`}><a href={stockUrl(quote, quote.market ?? market)} target="_blank" rel="noopener noreferrer"><strong>{quote.name}</strong></a></TableCell>
                 <TableCell><Price quote={quote} market={quote.market ?? market} /></TableCell>
                 <TableCell>{quote.pending ? <span className="price-flat">—</span> : <Change value={quote.change} />}</TableCell>
-                {hasActions && <TableCell className="stock-remove-cell">{onRemove && <Button variant="ghost" size="icon" className="stock-remove" aria-label={`${quote.name} 관심종목 삭제`} title="관심종목 삭제" onClick={() => onRemove(quote)}><X /></Button>}{reorderHandle(quote, key)}</TableCell>}
+                {hasActions && <TableCell className="stock-remove-cell">{onRemove && <Button variant="ghost" size="icon" className="stock-remove" aria-label={`${quote.name} 관심종목 삭제`} title="관심종목 삭제" onClick={() => onRemove(quote)}><X /></Button>}</TableCell>}
               </TableRow>; })}</TableBody>
             </Table>
           </section>)}
