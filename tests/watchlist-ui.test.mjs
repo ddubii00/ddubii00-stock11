@@ -74,7 +74,13 @@ test('watchlist double-click and market single-click synchronize highlights both
     await user.click(normal);
     assert.equal(watch.getAttribute('aria-pressed'), 'true');
     await user.dblClick(watch);
+    assert.equal(color(normal), 'red');
+    await user.click(watch);
     assert.equal(normal.getAttribute('aria-pressed'), 'false');
+    await user.dblClick(normal);
+    assert.equal(color(watch), 'red');
+    await user.click(normal);
+    assert.equal(watch.getAttribute('aria-pressed'), 'false');
     cleanup();
   }
 });
@@ -235,7 +241,7 @@ test('watchlist double-click highlights red and handle-only dragging reorders wi
       assert.equal(toggle().getAttribute('aria-pressed'), 'true');
       assert.equal(color(), 'red');
       await user.click(background);
-      assert.equal(color(), 'yellow');
+      assert.equal(color(), undefined);
       await user.dblClick(background);
       assert.equal(color(), 'red');
       await user.dblClick(background);

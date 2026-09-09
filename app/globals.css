@@ -207,6 +207,9 @@ a { color: inherit; text-decoration: none; }
 .graph-card[data-highlighted="true"] { background: linear-gradient(var(--highlight-tint, rgb(245 75 85 / 18%)), var(--highlight-tint, rgb(245 75 85 / 18%))), #fff; }
 [data-highlight-color="yellow"] { --highlight-tint: rgb(255 218 0 / 24%); }
 .watch-board .chart-highlight-toggle:focus-visible { outline-color: #367cce; }
+.profile-login-button { padding: 2px 6px; height: 26px; font-size: 12px; white-space: nowrap; }
+.profile-account { display: grid; gap: 10px; }
+.profile-message { display: flex; align-items: center; gap: 8px; padding: 2px 8px; font-size: 13px; }
 .watch-board [data-drop-target="true"] { outline: 2px solid #438cdb; outline-offset: -2px; }
 .quote-table .stock-name a { display: inline-block; max-width: 100%; vertical-align: middle; }
 .quote-table .rank-highlight-toggle { width: 100%; height: 100%; min-height: 20px; padding: 0; border: 0; color: inherit; background: transparent; font: inherit; transform: none; }

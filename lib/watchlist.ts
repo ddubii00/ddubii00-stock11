@@ -18,7 +18,7 @@ export function parseSymbols(value: string, limit = 32): { market: Market; chart
   const result: { market: Market; chartCode: string }[] = [];
   for (const entry of entries) {
     const [market, chartCode, extra] = entry.split(':');
-    if (extra !== undefined || !['KOSPI', 'KOSDAQ', 'NASDAQ', 'NYSE', 'AMEX', 'SP500'].includes(market)
+    if (extra !== undefined || !['KOSPI', 'KOSDAQ', 'NASDAQ', 'NYSE', 'AMEX', 'SP500', 'DOW'].includes(market)
       || !/^[A-Za-z0-9.^-]{1,24}$/.test(chartCode ?? '')) return null;
     result.push({ market: market as Market, chartCode });
   }

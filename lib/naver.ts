@@ -36,7 +36,7 @@ type Basic = { closePrice: string; fluctuationsRatio: string; localTradedAt: str
 const domestic = (market: Market) => market === 'KOSPI' || market === 'KOSDAQ';
 function exchange(stock: Stock, fallback: Market): StockSelection['market'] {
   const name = stock.stockExchangeType?.name;
-  return name === 'KOSPI' || name === 'KOSDAQ' || name === 'NASDAQ' || name === 'NYSE' || name === 'AMEX' ? name : fallback === 'SP500' ? 'NYSE' : fallback;
+  return name === 'KOSPI' || name === 'KOSDAQ' || name === 'NASDAQ' || name === 'NYSE' || name === 'AMEX' ? name : fallback === 'SP500' || fallback === 'DOW' ? 'NYSE' : fallback;
 }
 function quoteFrom(stock: Stock, fallback: Market): Quote {
   const market = exchange(stock, fallback);
@@ -51,8 +51,8 @@ function quoteFrom(stock: Stock, fallback: Market): Quote {
 }
 
 export async function readStocks(market: Market): Promise<Omit<MarketPayload, 'indices'>> {
-  const url = (page: number) => market === 'SP500'
-    ? `https://api.stock.naver.com/index/.INX/stocks?page=${page}&pageSize=100`
+  const url = (page: number) => market === 'SP500' || market === 'DOW'
+    ? `https://api.stock.naver.com/index/${market === 'DOW' ? '.DJI' : '.INX'}/stocks?page=${page}&pageSize=100`
     : !domestic(market)
     ? `https://api.stock.naver.com/stock/exchange/${market}/marketValue?page=${page}&pageSize=100`
     : `https://m.stock.naver.com/api/stocks/marketValue/${market}?page=${page}&pageSize=100`;
@@ -62,6 +62,7 @@ export async function readStocks(market: Market): Promise<Omit<MarketPayload, 'i
     const more = Array.isArray(data) ? data : data.stocks;
     if (!more?.length) break;
     stocks = [...new Map([...stocks, ...more.filter((stock) => stock.stockEndType === 'stock')].map((stock) => [stock.itemCode ?? stock.reutersCode, stock])).values()];
+    if (more.length < 100) break;
   }
   stocks = stocks.slice(0, 200);
   if (!stocks.length) throw new Error('종목 데이터를 받지 못했습니다.');

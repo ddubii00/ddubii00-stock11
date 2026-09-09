@@ -12,6 +12,12 @@ services:
     environment:
       STOCK11_DATA_PROVIDER: kis
       KIS_RELAY_URL: http://kis-relay:8091
+      REDIS_URL: ${REDIS_URL:-}
+      STOCK11_SYNC_ENABLED: ${STOCK11_SYNC_ENABLED:-true}
+      STOCK11_SYNC_PASSWORD: ${STOCK11_SYNC_PASSWORD:-}
+      STOCK11_SYNC_ORIGIN: ${STOCK11_SYNC_ORIGIN:-}
+      STOCK11_USER_ID: ${STOCK11_USER_ID:-personal}
+      STOCK11_REDIS_PREFIX: ${STOCK11_REDIS_PREFIX:-stock11}
     depends_on:
       kis-relay:
         condition: service_healthy

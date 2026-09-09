@@ -13,11 +13,14 @@ import { Sparkline, type LiveTick } from '@/components/stock-charts';
 import { WatchlistToolbar } from '@/components/watchlist-toolbar';
 import { reorderWatchlist, restoreWatchlist, symbolKey, WATCHLIST_KEY } from '@/lib/watchlist';
 import { stockUrl } from '@/lib/stock-links';
+import { useStockHighlights } from '@/hooks/use-stock-highlights';
+import { useServerProfile } from '@/hooks/use-server-profile';
+import { ProfileLogin } from '@/components/profile-login';
+import type { HighlightColor } from '@/lib/stock-highlights';
 import type { IndexQuote, Market, MarketPayload, MinuteSeries, Quote, StockSelection } from '@/lib/market-types';
 
-const markets: Market[] = ['KOSPI', 'KOSDAQ', 'NASDAQ', 'SP500'];
-type HighlightColor = 'yellow' | 'red';
-const marketLabel = (market: Market) => market === 'SP500' ? 'S&P500' : market;
+const markets: Market[] = ['KOSPI', 'KOSDAQ', 'NASDAQ', 'DOW', 'SP500'];
+const marketLabel = (market: Market) => market === 'SP500' ? 'S&P500' : market === 'DOW' ? 'Dow' : market;
 const isUS = (market: Market) => market !== 'KOSPI' && market !== 'KOSDAQ';
 const views = markets.flatMap((market) => [
   { value: market.toLowerCase(), market, graph: false, label: marketLabel(market) },
@@ -58,15 +61,13 @@ export function Board({ market, graph, payload, largeText, autoRefresh, error, n
     return next;
   }));
   const isHighlighted = (key: string) => selected.has(key);
-  const toggleHighlight = (key: string) => updateHighlight(key, selected.has(key) ? undefined : 'red');
   const clickOrigin = useRef<{ key: string; color?: HighlightColor } | null>(null);
   const highlightClick = (event: MouseEvent, key: string) => {
-    if (!watch) { toggleHighlight(key); return; }
     if (event.detail > 1) return;
     // Remember the original color before the first click of a double-click.
     // This avoids timers and honors the OS's own double-click speed setting.
     clickOrigin.current = { key, color: selected.get(key) };
-    updateHighlight(key, selected.get(key) === 'yellow' ? undefined : 'yellow');
+    updateHighlight(key, selected.has(key) ? undefined : 'yellow');
   };
   const highlightDoubleClick = (key: string) => {
     const original = clickOrigin.current?.key === key ? clickOrigin.current.color : selected.get(key);
@@ -74,7 +75,7 @@ export function Board({ market, graph, payload, largeText, autoRefresh, error, n
     clickOrigin.current = null;
   };
   const highlightLabel = '배경 표시';
-  const highlightHint = watch ? '한 번 클릭: 노란색 · 더블클릭: 빨간색 · 같은 동작을 반복하면 해제' : '클릭: 표시 켜기/끄기';
+  const highlightHint = '한 번 클릭: 노란색 · 더블클릭: 빨간색 · 표시된 배경을 한 번 더 클릭하면 해제';
   const dragSource = useRef<string | null>(null);
   const [dropTarget, setDropTarget] = useState<string | null>(null);
   const [moveMessage, setMoveMessage] = useState('');
@@ -236,7 +237,7 @@ export function Board({ market, graph, payload, largeText, autoRefresh, error, n
             const exchange = quote.market ?? market, key = symbolKey({ market: exchange, chartCode: quote.chartCode });
             return <div className={`graph-slot ${watch ? 'watch-slot' : ''}`} key={key} data-drop-target={dropTarget === key} {...dropEvents(key)} style={{ gridColumn: Math.floor(index / layout.rows) + 1, gridRow: index % layout.rows + 1 }}>
               <div className="graph-card" data-highlighted={isHighlighted(key)} data-highlight-color={selected.get(key)}>
-              <Button variant="ghost" className="chart-highlight-toggle" aria-label={`${quote.name} ${highlightLabel}`} title={highlightHint} aria-pressed={isHighlighted(key)} onClick={(event) => highlightClick(event, key)} onDoubleClick={watch ? () => highlightDoubleClick(key) : undefined} />
+              <Button variant="ghost" className="chart-highlight-toggle" aria-label={`${quote.name} ${highlightLabel}`} title={highlightHint} aria-pressed={isHighlighted(key)} onClick={(event) => highlightClick(event, key)} onDoubleClick={() => highlightDoubleClick(key)} />
               <div className="graph-identity"><a href={stockUrl(quote, exchange)} target="_blank" rel="noopener noreferrer" aria-label={`${quote.name} 네이버 증권 새 탭에서 보기`}><strong title={quote.name}>{quote.name}</strong></a><span>{offset + index + 1} · {quote.code}{watch ? ' · 분봉' : ''}</span></div>
               <Sparkline series={series[key]} tick={provider === 'kis' && quote.marketStatus === 'OPEN' && autoRefresh ? liveTicks[quote.chartCode] : undefined} name={quote.name} now={now} />
               <div className="graph-price"><Price quote={quote} market={exchange} />{quote.pending ? <span className="price-flat">수신 대기</span> : <Change value={quote.change} />}</div>
@@ -258,9 +259,9 @@ export function Board({ market, graph, payload, largeText, autoRefresh, error, n
                 return <TableRow key={key} style={{ height: layout.rowHeight }} data-highlighted={isHighlighted(key)} data-highlight-color={selected.get(key)} data-drop-target={dropTarget === key} {...dropEvents(key)} onClick={(event) => {
                   if (!(event.target as Element).closest('a, button')) highlightClick(event, key);
                 }} onDoubleClick={(event) => {
-                  if (watch && !(event.target as Element).closest('a, button')) highlightDoubleClick(key);
+                  if (!(event.target as Element).closest('a, button')) highlightDoubleClick(key);
                 }}>
-                <TableCell className="rank"><Button variant="ghost" className="rank-highlight-toggle" aria-label={`${quote.name} ${highlightLabel}`} title={highlightHint} aria-pressed={isHighlighted(key)} onClick={(event) => highlightClick(event, key)} onDoubleClick={watch ? () => highlightDoubleClick(key) : undefined}>{offset + columnIndex * layout.rows + index + 1}</Button></TableCell>
+                <TableCell className="rank"><Button variant="ghost" className="rank-highlight-toggle" aria-label={`${quote.name} ${highlightLabel}`} title={highlightHint} aria-pressed={isHighlighted(key)} onClick={(event) => highlightClick(event, key)} onDoubleClick={() => highlightDoubleClick(key)}>{offset + columnIndex * layout.rows + index + 1}</Button></TableCell>
                 <TableCell className="stock-name" title={`${quote.name} (${quote.code}) · ${quote.market} ${statusLabel(quote.marketStatus)} · ${quote.asOf} · 거래대금 ${quote.turnover}`}><a href={stockUrl(quote, quote.market ?? market)} target="_blank" rel="noopener noreferrer"><strong>{quote.name}</strong></a></TableCell>
                 <TableCell><Price quote={quote} market={quote.market ?? market} /></TableCell>
                 <TableCell>{quote.pending ? <span className="price-flat">—</span> : <Change value={quote.change} />}</TableCell>
@@ -284,23 +285,45 @@ export function Board({ market, graph, payload, largeText, autoRefresh, error, n
 }
 
 export function StockDashboard() {
-  const [highlighted, setHighlighted] = useState<Map<string, HighlightColor>>(new Map());
-  const onHighlight = (key: string, color?: HighlightColor) => setHighlighted((current) => {
-    const next = new Map(current);
-    if (color) next.set(key, color); else next.delete(key);
-    return next;
-  });
+  const { highlighted: localHighlights, onHighlight: localOnHighlight, highlightStorageError } = useStockHighlights();
+  const sync = useServerProfile();
+  const highlighted = sync.enabled ? new Map(sync.profile.highlights) : localHighlights;
+  const onHighlight = (key: string, color?: HighlightColor) => {
+    if (sync.enabled) sync.send({ type: 'highlight', key, color: color ?? null }); else localOnHighlight(key, color);
+  };
   const [data, setData] = useState<Partial<Record<Market, MarketPayload>>>({});
   const [indices, setIndices] = useState<IndexQuote[]>([]);
   const [errors, setErrors] = useState<Partial<Record<Market, string>>>({});
   const [autoRefresh, setAutoRefresh] = useState(true);
-  const [largeText, setLargeText] = useState(true);
+  const [localLargeText, setLocalLargeText] = useState(true);
+  const largeText = sync.enabled && (sync.phase === 'ready' || sync.phase === 'cached') ? sync.profile.settings.largeText : localLargeText;
+  const setLargeText = (change: (value: boolean) => boolean) => {
+    const next = change(largeText);
+    if (sync.enabled) sync.send({ type: 'settings', largeText: next });
+    else { setLocalLargeText(next); try { localStorage.setItem('stock11.large-text.v1', JSON.stringify(next)); } catch { /* Browser preferences remain usable. */ } }
+  };
   const [tab, setTab] = useState('kospi');
   const [now, setNow] = useState(0);
   const [busy, setBusy] = useState(false);
   const [provider, setProvider] = useState<'naver' | 'kis'>('naver');
   const [indexSeries, setIndexSeries] = useState<Record<string, MinuteSeries>>({});
-  const [watchlist, setWatchlist] = useState<StockSelection[]>([]);
+  const [localWatchlist, setLocalWatchlist] = useState<StockSelection[]>([]);
+  const watchlist = sync.enabled ? sync.profile.watchlist : localWatchlist;
+  const setWatchlist = (items: StockSelection[]) => {
+    if (!sync.enabled) { setLocalWatchlist(items); return; }
+    for (const item of items) if (!watchlist.some((old) => symbolKey(old) === symbolKey(item))) sync.send({ type: 'add', item });
+  };
+  const removeWatch = (quote: Quote) => {
+    const key = symbolKey({ market: quote.market ?? 'KOSPI', chartCode: quote.chartCode });
+    if (sync.enabled) sync.send({ type: 'remove', key });
+    else setLocalWatchlist((items) => items.filter((item) => symbolKey(item) !== key));
+  };
+  const reorderWatch = (source: string, target: string) => {
+    if (!sync.enabled) { setLocalWatchlist((items) => reorderWatchlist(items, source, target)); return; }
+    const next = reorderWatchlist(watchlist, source, target);
+    const following = next[next.findIndex((item) => symbolKey(item) === source) + 1];
+    sync.send({ type: 'move', key: source, before: following ? symbolKey(following) : null });
+  };
   const [watchLoaded, setWatchLoaded] = useState(false);
   const [storageError, setStorageError] = useState('');
   const [watchQuotes, setWatchQuotes] = useState<Record<string, Quote>>({});
@@ -308,20 +331,22 @@ export function StockDashboard() {
   const inFlight = useRef(false);
 
   useEffect(() => {
+    // eslint-disable-next-line react/react-compiler -- Restore browser-only text-size preference after hydration.
+    try { const saved = localStorage.getItem('stock11.large-text.v1'); if (saved === 'true' || saved === 'false') setLocalLargeText(saved === 'true'); } catch { /* Optional UI preference. */ }
     // eslint-disable-next-line react/react-compiler -- Read browser-only persistence after hydration, never during the server render.
-    try { setWatchlist(restoreWatchlist(localStorage.getItem(WATCHLIST_KEY))); }
+    try { setLocalWatchlist(restoreWatchlist(localStorage.getItem(WATCHLIST_KEY))); }
     catch { setStorageError('브라우저 저장소 사용 불가 · 이번 화면에서만 유지됩니다.'); }
     setWatchLoaded(true);
-    const sync = (event: StorageEvent) => { if (event.key === WATCHLIST_KEY) setWatchlist(restoreWatchlist(event.newValue)); };
+    const sync = (event: StorageEvent) => { if (event.key === WATCHLIST_KEY) setLocalWatchlist(restoreWatchlist(event.newValue)); };
     window.addEventListener('storage', sync);
     return () => window.removeEventListener('storage', sync);
   }, []);
   useEffect(() => {
     if (!watchLoaded) return;
-    try { localStorage.setItem(WATCHLIST_KEY, JSON.stringify(watchlist)); }
+    try { localStorage.setItem(WATCHLIST_KEY, JSON.stringify(localWatchlist)); }
     // eslint-disable-next-line react/react-compiler -- Surface a real external storage failure to the user.
     catch { setStorageError('브라우저 저장 실패 · 이번 화면에서만 유지됩니다.'); }
-  }, [watchlist, watchLoaded]);
+  }, [localWatchlist, watchLoaded]);
   const watchSymbols = watchlist.map(symbolKey).join(',');
   useEffect(() => {
     if (!watchSymbols) return;
@@ -432,6 +457,7 @@ export function StockDashboard() {
         })}
       </div>
       <div className="header-actions">
+        <ProfileLogin sync={sync} localImport={{ type: 'import', watchlist: localWatchlist, highlights: [...localHighlights], largeText: localLargeText }} />
         <span className="refresh-status" title={provider === 'kis' ? 'KIS 체결 수신 · 연결 상태와 구독 수는 하단 표시 · 미구독 종목과 지수는 30초 갱신' : '시세와 분봉을 30초마다 갱신합니다.'}><i className={autoRefresh ? 'on' : ''} />{autoRefresh ? provider === 'kis' ? 'KIS' : '30초' : '멈춤'}</span>
         <Button variant="ghost" size="icon" disabled={busy} onClick={() => void refresh()} aria-label="지금 새로고침" title="지금 새로고침"><RefreshCw className={busy ? 'refreshing' : ''} /></Button>
         <Button variant="ghost" size="icon" onClick={() => setAutoRefresh((value) => !value)} aria-label={autoRefresh ? '자동 갱신 멈춤' : '자동 갱신 시작'} title={autoRefresh ? '자동 갱신 멈춤' : '자동 갱신 시작'}>{autoRefresh ? <Pause /> : <Play />}</Button>
@@ -439,12 +465,14 @@ export function StockDashboard() {
         <Button variant="ghost" size="icon" onClick={() => setLargeText((value) => !value)} aria-label="글자 크기 전환" title={largeText ? '많이 보기 (큰 글씨 유지)' : '더 큰 글씨'}><Type /></Button>
       </div>
     </header>
+      {!sync.enabled && highlightStorageError && <output className="connection-error">{highlightStorageError}</output>}
+      {sync.message && <div className="profile-message"><output className="connection-error">{sync.message}</output><Button variant="ghost" onClick={() => void (sync.unsaved ? sync.retry() : sync.refresh())}>{sync.unsaved ? '다시 저장' : '다시 불러오기'}</Button></div>}
       {views.map((view) => <TabsContent key={view.value} value={view.value} className="market-panel">
         <Board {...view} highlighted={highlighted} onHighlight={onHighlight} payload={data[view.market]} largeText={largeText} autoRefresh={autoRefresh} error={errors[view.market]} now={now} provider={provider} />
       </TabsContent>)}
       {['watchlist', 'watchlist-chart'].map((value) => <TabsContent key={value} value={value} className="market-panel watch-panel">
-        <WatchlistToolbar items={watchlist} onChange={setWatchlist} storageError={storageError} />
-        <Board market="KOSPI" graph={value.endsWith('-chart')} highlighted={highlighted} onHighlight={onHighlight} watch onReorder={(source, target) => setWatchlist((items) => reorderWatchlist(items, source, target))} onRemove={(quote) => setWatchlist((items) => items.filter((item) => item.chartCode !== quote.chartCode))} payload={watchPayload} largeText={largeText} autoRefresh={autoRefresh} error={watchlist.length ? watchError || (savedQuotes.length ? undefined : '관심종목 시세 수신 중…') : undefined} now={now} provider={provider} />
+        <WatchlistToolbar items={watchlist} onChange={setWatchlist} disabled={sync.enabled && sync.phase !== 'ready'} storageError={sync.enabled ? sync.phase !== 'ready' ? '상단 로그인 후 관심종목을 불러오세요.' : '' : storageError} />
+        <Board market="KOSPI" graph={value.endsWith('-chart')} highlighted={highlighted} onHighlight={onHighlight} watch onReorder={reorderWatch} onRemove={removeWatch} payload={watchPayload} largeText={largeText} autoRefresh={autoRefresh} error={watchlist.length ? watchError || (savedQuotes.length ? undefined : '관심종목 시세 수신 중…') : sync.enabled && sync.phase !== 'ready' ? '상단 로그인 후 서버 기록을 불러오세요.' : undefined} now={now} provider={provider} />
       </TabsContent>)}
     </Tabs>
   </main>;

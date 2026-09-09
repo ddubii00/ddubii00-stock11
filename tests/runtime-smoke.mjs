@@ -28,6 +28,7 @@ async function start(script, env = {}) {
   const child = spawn(process.execPath, [script], { env: {
     ...process.env, NODE_ENV: 'production', HOSTNAME: '127.0.0.1', PORT: String(port),
     KIS_APP_KEY: '', KIS_APP_SECRET: '', KIS_RELAY_PORT: String(port), KIS_RELAY_HOST: '127.0.0.1',
+    REDIS_URL: '', STOCK11_SYNC_PASSWORD: '', STOCK11_SYNC_ENABLED: 'true',
     VERCEL: '', STOCK11_DATA_PROVIDER: 'naver', ...env,
   }, stdio: ['ignore', 'pipe', 'pipe'] });
   children.add(child);
@@ -66,6 +67,13 @@ try {
   assert.equal((await fetch(vercel.origin + '/api/live?market=KOSPI&codes=005930')).status, 404);
   assert.equal((await fetch(vercel.origin + '/api/market?market=INVALID')).status, 400);
   assert.equal((await fetch(vercel.origin + '/api/chart?market=KOSPI&codes=../../secret')).status, 400);
+  const redisHealth = await fetch(vercel.origin + '/api/health/redis');
+  assert.equal(redisHealth.status, 503);
+  assert.deepEqual(await redisHealth.json(), { ok: false, redis: 'unavailable' });
+  const session = await (await fetch(vercel.origin + '/api/session')).json();
+  assert.equal(session.enabled, false);
+  assert.equal(session.authenticated, false);
+  assert.equal((await fetch(vercel.origin + '/api/profile')).status, 503);
   await stop(vercel.child);
   console.info('PASS Vercel mode: page, static assets, runtime settings, KIS disabled, input validation.');
 

@@ -7,7 +7,7 @@ export const maxDuration = 30;
 export async function GET(request: Request) {
   const url = new URL(request.url);
   const market = url.searchParams.get('market')?.toUpperCase() ?? 'KOSPI';
-  if (market !== 'KOSPI' && market !== 'KOSDAQ' && market !== 'NASDAQ' && market !== 'SP500') {
+  if (market !== 'KOSPI' && market !== 'KOSDAQ' && market !== 'NASDAQ' && market !== 'SP500' && market !== 'DOW') {
     return Response.json({ error: '지원하지 않는 시장입니다.' }, { status: 400 });
   }
   try {

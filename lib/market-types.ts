@@ -1,5 +1,5 @@
-export type Market = 'KOSPI' | 'KOSDAQ' | 'NASDAQ' | 'NYSE' | 'AMEX' | 'SP500';
-export type StockSelection = { code: string; chartCode: string; name: string; market: Exclude<Market, 'SP500'>; instrumentType?: 'etf' };
+export type Market = 'KOSPI' | 'KOSDAQ' | 'NASDAQ' | 'NYSE' | 'AMEX' | 'SP500' | 'DOW';
+export type StockSelection = { code: string; chartCode: string; name: string; market: Exclude<Market, 'SP500' | 'DOW'>; instrumentType?: 'etf' };
 
 export type Quote = {
   code: string;
@@ -11,7 +11,7 @@ export type Quote = {
   changePrice: number;
   turnover: string;
   asOf: string;
-  market?: Exclude<Market, 'SP500'>;
+  market?: Exclude<Market, 'SP500' | 'DOW'>;
   marketStatus?: string;
   pending?: boolean;
   instrumentType?: 'etf';
