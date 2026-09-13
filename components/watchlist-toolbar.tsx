@@ -2,6 +2,7 @@
 import { useEffect, useState } from 'react';
 import { Combobox, ComboboxInput, ComboboxContent, ComboboxList, ComboboxItem } from '@/components/ui/combobox';
 import { symbolKey } from '@/lib/watchlist';
+import { apiPath } from '@/lib/base-path';
 import type { StockSelection } from '@/lib/market-types';
 
 export function WatchlistToolbar({ items, onChange, storageError, disabled = false }: {
@@ -16,7 +17,7 @@ export function WatchlistToolbar({ items, onChange, storageError, disabled = fal
     const controller = new AbortController();
     const timer = window.setTimeout(async () => {
       try {
-        const response = await fetch(`/api/search?q=${encodeURIComponent(query.trim())}`, { signal: controller.signal });
+        const response = await fetch(`${apiPath('/api/search')}?q=${encodeURIComponent(query.trim())}`, { signal: controller.signal });
         if (!response.ok) throw new Error('검색 연결 실패 · 다시 입력해 주세요.');
         const data = await response.json() as { items: StockSelection[] };
         if (controller.signal.aborted) return;

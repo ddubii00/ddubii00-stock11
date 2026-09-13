@@ -8,6 +8,7 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table';
 import { Pagination, PaginationContent, PaginationItem } from '@/components/ui/pagination';
 import { fitBoard } from '@/lib/board-layout';
+import { apiPath } from '@/lib/base-path';
 import { sessionFor } from '@/lib/chart-model';
 import { Sparkline, type LiveTick } from '@/components/stock-charts';
 import { WatchlistToolbar } from '@/components/watchlist-toolbar';
@@ -149,7 +150,7 @@ export function Board({ market, graph, payload, largeText, textScale = largeText
       const groups = new Map<string, string[]>();
       for (const key of liveCodes.split(',')) { const [exchange, code] = key.split(':'); groups.set(exchange, [...(groups.get(exchange) ?? []), code]); }
       for (const [exchange, symbols] of groups) {
-      const stream = new EventSource(`/api/live?market=${exchange}&codes=${encodeURIComponent(symbols.join(','))}`);
+      const stream = new EventSource(`${apiPath('/api/live')}?market=${exchange}&codes=${encodeURIComponent(symbols.join(','))}`);
       streams.push(stream);
       stream.addEventListener('status', (event) => {
         try {
@@ -196,7 +197,7 @@ export function Board({ market, graph, payload, largeText, textScale = largeText
         const symbols = codes.split(','), failures: Record<string, string> = {};
         // Sequential 32-stock batches bound serverless fan-out as density grows.
         for (let offset = 0; offset < symbols.length; offset += 32) {
-        const response = await fetch(`/api/chart?symbols=${encodeURIComponent(symbols.slice(offset, offset + 32).join(','))}&kind=minutes`, { signal: controller.signal });
+        const response = await fetch(`${apiPath('/api/chart')}?symbols=${encodeURIComponent(symbols.slice(offset, offset + 32).join(','))}&kind=minutes`, { signal: controller.signal });
         if (!response.ok) throw new Error('차트 조회 실패');
         const result = await response.json() as { series: Record<string, MinuteSeries>; errors: Record<string, string> };
         if (!controller.signal.aborted) {
@@ -359,7 +360,7 @@ export function StockDashboard() {
       const symbols = watchSymbols.split(','); let failed = 0;
       try {
         for (let offset = 0; offset < symbols.length; offset += 32) {
-          const response = await fetch(`/api/watchlist?symbols=${encodeURIComponent(symbols.slice(offset, offset + 32).join(','))}`, { signal: controller.signal });
+          const response = await fetch(`${apiPath('/api/watchlist')}?symbols=${encodeURIComponent(symbols.slice(offset, offset + 32).join(','))}`, { signal: controller.signal });
           if (!response.ok) throw new Error('관심종목 연결 재시도 중 · 마지막 수신값 유지');
           const result = await response.json() as { quotes: Record<string, Quote>; errors: Record<string, string> };
           if (controller.signal.aborted) return;
@@ -374,7 +375,7 @@ export function StockDashboard() {
 
   useEffect(() => {
     const controller = new AbortController();
-    void fetch('/api/runtime', { signal: controller.signal }).then((response) => response.json() as Promise<{ provider: string }>).then((config) => {
+    void fetch(apiPath('/api/runtime'), { signal: controller.signal }).then((response) => response.json() as Promise<{ provider: string }>).then((config) => {
       if (!controller.signal.aborted) setProvider(config.provider === 'kis' ? 'kis' : 'naver');
     }).catch(() => { /* The default 30-second provider remains available. */ });
     return () => controller.abort();
@@ -387,7 +388,7 @@ export function StockDashboard() {
     try {
       await Promise.all([...markets.map(async (market) => {
         try {
-          const response = await fetch(`/api/market?market=${market}${market === 'KOSPI' ? '&indices=1' : ''}`, { cache: 'no-store', signal: AbortSignal.timeout(15000) });
+          const response = await fetch(`${apiPath('/api/market')}?market=${market}${market === 'KOSPI' ? '&indices=1' : ''}`, { cache: 'no-store', signal: AbortSignal.timeout(15000) });
           if (!response.ok) throw new Error('시세 연결 재시도 중 · 마지막 수신값 표시');
           const result = await response.json() as MarketPayload;
           if (!result.stocks?.length) throw new Error('시세 수신 대기');
@@ -399,7 +400,7 @@ export function StockDashboard() {
         }
       }), (async () => {
         try {
-          const response = await fetch('/api/index-chart', { signal: AbortSignal.timeout(15000) });
+          const response = await fetch(apiPath('/api/index-chart'), { signal: AbortSignal.timeout(15000) });
           if (!response.ok) return;
           const result = await response.json() as { series: Record<string, MinuteSeries> };
           setIndexSeries((current) => ({ ...current, ...result.series }));
@@ -455,8 +456,8 @@ export function StockDashboard() {
           return <div className="index-item" key={label} title={item?.asOf ? `${label} · ${new Date(item.asOf).toLocaleString('ko-KR')}` : `${label} 수신 대기`}>
             <div className="index-data">
               <span className="index-label">{label}</span>
-              <strong className={item ? tone(item.change) : ''}>{item ? item.value.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 }) : '—'}</strong>
-              {item && <span className={`index-change ${tone(item.change)}`}>{item.change > 0 ? '+' : ''}{item.change.toFixed(2)}%</span>}
+              <strong className={item ? tone(item.change) : ''}>{item ? item.value.toLocaleString('en-US', { maximumFractionDigits: 0 }) : '—'}</strong>
+              {item && <span className={`index-change ${tone(item.change)}`}>{item.change > 0 ? '+' : ''}{item.change.toFixed(1)}%</span>}
             </div>
             <Sparkline mini series={indexSeries[label]} name={label} now={now} />
           </div>;

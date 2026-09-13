@@ -1,6 +1,9 @@
 import type { NextConfig } from 'next';
 
+const basePath = (process.env.STOCK11_BASE_PATH ?? '').replace(/\/+$/, '');
 const nextConfig: NextConfig = {
+  ...(basePath ? { basePath } : {}),
+  env: { NEXT_PUBLIC_BASE_PATH: basePath },
   output: 'standalone',
   poweredByHeader: false,
   webpack(config) {

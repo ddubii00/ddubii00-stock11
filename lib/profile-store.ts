@@ -25,7 +25,7 @@ export function syncConfiguration() {
   const password = process.env.STOCK11_SYNC_PASSWORD ?? '';
   // A Redis connection alone must never enable public state access or writes.
   if (!password) return null;
-  if (password.length < 12 || password.length > 256) throw new Error('로그인 비밀번호 설정 오류');
+  if (password.length < 4 || password.length > 256) throw new Error('로그인 비밀번호 설정 오류');
   const origin = process.env.STOCK11_SYNC_ORIGIN;
   if (origin) {
     const parsed = new URL(origin);

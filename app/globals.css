@@ -173,6 +173,25 @@ a { color: inherit; text-decoration: none; }
   .board-footer > p { font-size: 10px; }
   .page-indicator { min-width: 88px; font-size: 12px; }
 }
+
+/* Full-page password gate. Authentication uses the existing HttpOnly server session cookie. */
+.site-access-shell { min-height: 100dvh; display: grid; place-items: center; padding: 24px; background: #f5f7fb; }
+.site-access-card { width: min(420px, 100%); padding: 28px; border: 1px solid #dbe1ea; border-radius: 16px; background: #fff; box-shadow: 0 18px 50px rgba(15, 23, 42, .10); }
+.site-access-brand { margin-bottom: 6px; font-size: 30px; font-weight: 900; letter-spacing: -1px; }
+.site-access-brand span { color: #2563eb; }
+.site-access-description { margin: 0 0 22px; color: #64748b; font-size: 14px; line-height: 1.55; }
+.site-access-checking { margin: 0; font-weight: 700; }
+.site-access-form { display: grid; gap: 12px; }
+.site-access-form label { font-weight: 800; }
+.site-access-error { display: block; margin-top: 14px; }
+
+/* Keep the five index values readable on small screens without wrapping. */
+@media (max-width: 700px) {
+  .header-indices { gap: 2px; }
+  .index-item, .index-data { min-width: 0; }
+  .index-data { gap: 1px; }
+  .index-data strong, .index-change { letter-spacing: -0.055em; white-space: nowrap; font-variant-numeric: tabular-nums; }
+}
 @media (prefers-reduced-motion: reduce) { .refreshing { animation: none; } }
 
 /* Compact trend rows: identity / actual trend / large price. Axes live in tooltips. */

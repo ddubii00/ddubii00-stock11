@@ -28,6 +28,8 @@ yarn-error.log*
 
 # local environment
 .env*
+*.bak-*
+apply_stock11_access_sync.py
 !.env.example
 !.env.oracle.example
 

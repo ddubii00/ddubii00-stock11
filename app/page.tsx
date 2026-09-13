@@ -1,5 +1,6 @@
+import { SiteAccessGate } from '@/components/site-access-gate';
 import { StockDashboard } from '@/components/stock-dashboard';
 
 export default function Home() {
-  return <StockDashboard />;
+  return <SiteAccessGate><StockDashboard /></SiteAccessGate>;
 }

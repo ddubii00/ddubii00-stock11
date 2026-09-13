@@ -5,7 +5,8 @@ import { redisKey } from './redis';
 
 export class ProfileError extends Error { constructor(message: string, public status: number) { super(message); } }
 export const digest = (value: string) => createHash('sha256').update(value).digest('hex');
-export const SESSION_AGE = 7 * 24 * 60 * 60;
+// A device keeps its HttpOnly login cookie until the user clears cookies or logs out.
+export const SESSION_AGE = 10 * 365 * 24 * 60 * 60;
 type RecordValue = { profile: Profile; recent: string[] };
 function decode(raw: string | null): RecordValue {
   if (raw === null) return { profile: emptyProfile(), recent: [] };

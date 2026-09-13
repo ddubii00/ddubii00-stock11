@@ -7,21 +7,26 @@ COPY package.json package-lock.json ./
 RUN npm ci --no-audit --no-fund
 
 FROM base AS builder
+ARG STOCK11_BASE_PATH=
+ENV STOCK11_BASE_PATH=$STOCK11_BASE_PATH
+ENV NODE_OPTIONS=--max-old-space-size=1024
 COPY --from=dependencies /app/node_modules ./node_modules
 COPY . .
 RUN npm run build
 
 FROM base AS app
+ARG STOCK11_BASE_PATH=
 ENV NODE_ENV=production
 ENV HOSTNAME=0.0.0.0
 ENV PORT=3000
+ENV STOCK11_BASE_PATH=$STOCK11_BASE_PATH
 COPY --from=builder --chown=node:node /app/.next/standalone ./
 COPY --from=builder --chown=node:node /app/.next/static ./.next/static
 COPY --from=builder --chown=node:node /app/public ./public
 RUN mkdir -p /app/data && chown node:node /app/data
 USER node
 EXPOSE 3000
-HEALTHCHECK --interval=30s --timeout=5s --start-period=30s --retries=3 CMD node -e "fetch('http://127.0.0.1:3000/api/health').then(r=>process.exit(r.ok?0:1)).catch(()=>process.exit(1))"
+HEALTHCHECK --interval=30s --timeout=5s --start-period=30s --retries=3 CMD node -e "fetch('http://127.0.0.1:3000' + (process.env.STOCK11_BASE_PATH || '') + '/api/health').then(r=>process.exit(r.ok?0:1)).catch(()=>process.exit(1))"
 CMD ["node", "server.js"]
 
 FROM base AS kis-relay

@@ -5,6 +5,8 @@ services:
     build:
       context: .
       target: app
+      args:
+        STOCK11_BASE_PATH: /stock11-7
     init: true
     restart: unless-stopped
     ports:
