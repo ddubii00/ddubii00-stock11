@@ -8,7 +8,9 @@ export async function GET(request: Request) {
   if (!items) return Response.json({ error: '한 번에 1~32개의 올바른 종목을 요청하세요.' }, { status: 400 });
   const quotes: Record<string, Awaited<ReturnType<typeof readQuote>>> = {}, errors: Record<string, string> = {};
   let cursor = 0;
-  await Promise.all(Array.from({ length: Math.min(4, items.length) }, async () => {
+  // Keep Oracle first-load latency bounded while still limiting provider
+  // concurrency; this is intentionally finite rather than Promise.all(items).
+  await Promise.all(Array.from({ length: Math.min(8, items.length) }, async () => {
     while (cursor < items.length) {
       const item = items[cursor++], key = symbolKey(item);
       try { quotes[key] = await readQuote(item.market, item.chartCode); }

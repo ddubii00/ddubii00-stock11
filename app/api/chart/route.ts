@@ -17,7 +17,10 @@ export async function GET(request: Request) {
   const errors: Record<string, string> = {};
   const candles: Record<string, Awaited<ReturnType<typeof readCandles>>> = {};
   let cursor = 0;
-  await Promise.all(Array.from({ length: Math.min(4, items.length) }, async () => {
+  // Naver's chart endpoint can take several seconds from Oracle. Eight bounded
+  // workers keep a 30-stock page within the request window without opening an
+  // unbounded fan-out that could stall the Node process.
+  await Promise.all(Array.from({ length: Math.min(8, items.length) }, async () => {
     while (cursor < items.length) {
       const item = items[cursor++], key = mixed ? symbolKey(item) : item.chartCode;
       try {
