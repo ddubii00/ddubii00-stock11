@@ -18,7 +18,7 @@ import { useStockHighlights } from '@/hooks/use-stock-highlights';
 import { useServerProfile } from '@/hooks/use-server-profile';
 import { ProfileLogin } from '@/components/profile-login';
 import type { HighlightColor } from '@/lib/stock-highlights';
-import type { TextScale } from '@/lib/profile';
+import { profileWatchlists, type TextScale, type WatchlistId } from '@/lib/profile';
 import type { IndexQuote, Market, MarketPayload, MinuteSeries, Quote, StockSelection } from '@/lib/market-types';
 
 const markets: Market[] = ['KOSPI', 'KOSDAQ', 'NASDAQ', 'SP500'];
@@ -27,6 +27,10 @@ const isUS = (market: Market) => market !== 'KOSPI' && market !== 'KOSDAQ';
 const views = markets.flatMap((market) => [
   { value: market.toLowerCase(), market, graph: false, label: marketLabel(market) },
   { value: `${market.toLowerCase()}-chart`, market, graph: true, label: `${marketLabel(market)} 차트` },
+]);
+const watchViews = ([0, 1, 2] as WatchlistId[]).flatMap((list) => [
+  { value: list === 0 ? 'watchlist' : `watchlist${list + 1}`, list, graph: false, label: list === 0 ? '관심종목' : `관심종목${list + 1}` },
+  { value: list === 0 ? 'watchlist-chart' : `watchlist${list + 1}-chart`, list, graph: true, label: list === 0 ? '관심종목 차트' : `관심종목${list + 1} 차트` },
 ]);
 const tone = (change: number) => change > 0 ? 'price-up' : change < 0 ? 'price-down' : 'price-flat';
 const formatted = (value: number, market: Market) => value.toLocaleString('en-US', {
@@ -241,8 +245,8 @@ export function Board({ market, graph, payload, largeText, textScale = largeText
         <div className="quote-columns" style={{ gridTemplateColumns: `repeat(${layout.columns}, minmax(0, 1fr))` }}>
           {columns.map((column, columnIndex) => <section className="quote-column" key={columnIndex} tabIndex={0} aria-label={`${market} ${columnIndex + 1}열 시세 스크롤 영역`}>
             <Table className={`quote-table ${watch ? 'watch-quote-table' : ''}`}>
-              <colgroup><col className="rank-col" /><col /><col className="price-col" /><col className="rate-col" />{hasActions && <col className="remove-col" />}</colgroup>
-              <TableHeader><TableRow><TableHead scope="col">#</TableHead><TableHead scope="col">종목명</TableHead><TableHead scope="col">현재가</TableHead><TableHead scope="col">등락률</TableHead>{hasActions && <TableHead scope="col"><span className="sr-only">관리</span></TableHead>}</TableRow></TableHeader>
+              <colgroup><col className="rank-col" /><col /><col className="price-col" /><col className="rate-col" />{watch && <col className="volume-col" />}{hasActions && <col className="remove-col" />}</colgroup>
+              <TableHeader><TableRow><TableHead scope="col">#</TableHead><TableHead scope="col">종목명</TableHead><TableHead scope="col">현재가</TableHead><TableHead scope="col">등락률</TableHead>{watch && <TableHead scope="col">거래량</TableHead>}{hasActions && <TableHead scope="col"><span className="sr-only">관리</span></TableHead>}</TableRow></TableHeader>
               <TableBody>{column.map((quote, index) => {
                 const key = symbolKey({ market: quote.market ?? market, chartCode: quote.chartCode });
                 // The rank button provides keyboard access; the row extends its pointer hit area.
@@ -255,6 +259,7 @@ export function Board({ market, graph, payload, largeText, textScale = largeText
                 <TableCell className="stock-name" title={`${quote.name} (${quote.code}) · ${quote.market} ${statusLabel(quote.marketStatus)} · ${quote.asOf} · 거래대금 ${quote.turnover}`}><a href={stockUrl(quote, quote.market ?? market)} target="_blank" rel="noopener noreferrer"><strong>{quote.name}</strong></a></TableCell>
                 <TableCell><Price quote={quote} market={quote.market ?? market} /></TableCell>
                 <TableCell>{quote.pending ? <span className="price-flat">—</span> : <Change value={quote.change} />}</TableCell>
+                {watch && <TableCell className="volume-cell">{quote.pending ? '—' : quote.volume ?? '—'}</TableCell>}
                 {hasActions && <TableCell className="stock-remove-cell">{onRemove && <Button variant="ghost" size="icon" className="stock-remove" aria-label={`${quote.name} 관심종목 삭제`} title="관심종목 삭제" onClick={() => onRemove(quote)}><X /></Button>}</TableCell>}
               </TableRow>; })}</TableBody>
             </Table>
@@ -304,22 +309,24 @@ export function StockDashboard() {
   const [busy, setBusy] = useState(false);
   const [provider, setProvider] = useState<'naver' | 'kis'>('naver');
   const [indexSeries, setIndexSeries] = useState<Record<string, MinuteSeries>>({});
-  const [localWatchlist, setLocalWatchlist] = useState<StockSelection[]>([]);
-  const watchlist = sync.enabled ? sync.profile.watchlist : localWatchlist;
-  const setWatchlist = (items: StockSelection[]) => {
-    if (!sync.enabled) { setLocalWatchlist(items); return; }
-    for (const item of items) if (!watchlist.some((old) => symbolKey(old) === symbolKey(item))) sync.send({ type: 'add', item });
+  const [localWatchlists, setLocalWatchlists] = useState<[StockSelection[], StockSelection[], StockSelection[]]>([[], [], []]);
+  const watchlists = sync.enabled ? profileWatchlists(sync.profile) : localWatchlists;
+  const setWatchlist = (items: StockSelection[], list: WatchlistId = 0) => {
+    const current = watchlists[list];
+    if (!sync.enabled) { setLocalWatchlists((lists) => lists.map((old, index) => index === list ? items : old) as [StockSelection[], StockSelection[], StockSelection[]]); return; }
+    for (const item of items) if (!current.some((old) => symbolKey(old) === symbolKey(item))) sync.send({ type: 'add', item, list });
   };
-  const removeWatch = (quote: Quote) => {
+  const removeWatch = (quote: Quote, list: WatchlistId = 0) => {
     const key = symbolKey({ market: quote.market ?? 'KOSPI', chartCode: quote.chartCode });
-    if (sync.enabled) sync.send({ type: 'remove', key });
-    else setLocalWatchlist((items) => items.filter((item) => symbolKey(item) !== key));
+    if (sync.enabled) sync.send({ type: 'remove', key, list });
+    else setLocalWatchlists((lists) => lists.map((items, index) => index === list ? items.filter((item) => symbolKey(item) !== key) : items) as [StockSelection[], StockSelection[], StockSelection[]]);
   };
-  const reorderWatch = (source: string, target: string) => {
-    if (!sync.enabled) { setLocalWatchlist((items) => reorderWatchlist(items, source, target)); return; }
-    const next = reorderWatchlist(watchlist, source, target);
+  const reorderWatch = (source: string, target: string, list: WatchlistId = 0) => {
+    const current = watchlists[list];
+    if (!sync.enabled) { setLocalWatchlists((lists) => lists.map((items, index) => index === list ? reorderWatchlist(items, source, target) : items) as [StockSelection[], StockSelection[], StockSelection[]]); return; }
+    const next = reorderWatchlist(current, source, target);
     const following = next[next.findIndex((item) => symbolKey(item) === source) + 1];
-    sync.send({ type: 'move', key: source, before: following ? symbolKey(following) : null });
+    sync.send({ type: 'move', key: source, before: following ? symbolKey(following) : null, list });
   };
   const [watchLoaded, setWatchLoaded] = useState(false);
   const [storageError, setStorageError] = useState('');
@@ -339,20 +346,26 @@ export function StockDashboard() {
       }
     } catch { /* Optional UI preference. */ }
     // eslint-disable-next-line react/react-compiler -- Read browser-only persistence after hydration, never during the server render.
-    try { setLocalWatchlist(restoreWatchlist(localStorage.getItem(WATCHLIST_KEY))); }
+    try {
+      const keys = [WATCHLIST_KEY, 'stock11.watchlist2.v1', 'stock11.watchlist3.v1'];
+      setLocalWatchlists(keys.map((key) => restoreWatchlist(localStorage.getItem(key))) as [StockSelection[], StockSelection[], StockSelection[]]);
+    }
     catch { setStorageError('브라우저 저장소 사용 불가 · 이번 화면에서만 유지됩니다.'); }
     setWatchLoaded(true);
-    const sync = (event: StorageEvent) => { if (event.key === WATCHLIST_KEY) setLocalWatchlist(restoreWatchlist(event.newValue)); };
+    const keys = new Set([WATCHLIST_KEY, 'stock11.watchlist2.v1', 'stock11.watchlist3.v1']);
+    const sync = (event: StorageEvent) => { if (event.key && keys.has(event.key)) setLocalWatchlists((lists) => lists.map((items, index) => index === [...keys].indexOf(event.key!) ? restoreWatchlist(event.newValue) : items) as [StockSelection[], StockSelection[], StockSelection[]]); };
     window.addEventListener('storage', sync);
     return () => window.removeEventListener('storage', sync);
   }, []);
   useEffect(() => {
     if (!watchLoaded) return;
-    try { localStorage.setItem(WATCHLIST_KEY, JSON.stringify(localWatchlist)); }
+    try {
+      [WATCHLIST_KEY, 'stock11.watchlist2.v1', 'stock11.watchlist3.v1'].forEach((key, index) => localStorage.setItem(key, JSON.stringify(localWatchlists[index])));
+    }
     // eslint-disable-next-line react/react-compiler -- Surface a real external storage failure to the user.
     catch { setStorageError('브라우저 저장 실패 · 이번 화면에서만 유지됩니다.'); }
-  }, [localWatchlist, watchLoaded]);
-  const watchSymbols = watchlist.map(symbolKey).join(',');
+  }, [localWatchlists, watchLoaded]);
+  const watchSymbols = watchlists.flat().map(symbolKey).filter((key, index, all) => all.indexOf(key) === index).join(',');
   useEffect(() => {
     if (!watchSymbols) return;
     const controller = new AbortController();
@@ -429,12 +442,13 @@ export function StockDashboard() {
     } catch { /* Fullscreen may be unavailable in an embedded preview. */ }
   };
   // Keep unreceived stocks visible and removable, without displaying a made-up price.
-  const savedQuotes: Quote[] = watchlist.map((item) => watchQuotes[symbolKey(item)] ?? {
-    ...item, pending: true, price: 0, previousClose: 0, change: 0, changePrice: 0, turnover: '—', asOf: '',
+  const savedQuotesFor = (list: WatchlistId): Quote[] => watchlists[list].map((item) => watchQuotes[symbolKey(item)] ?? {
+    ...item, pending: true, price: 0, previousClose: 0, change: 0, changePrice: 0, turnover: '—', volume: '—', asOf: '',
   });
-  const watchPayload: MarketPayload = {
-    stocks: savedQuotes, indices: [], marketStatus: savedQuotes.some((quote) => quote.marketStatus === 'OPEN') ? 'OPEN' : 'CLOSE',
-    asOf: savedQuotes.reduce((latest, quote) => quote.asOf > latest ? quote.asOf : latest, ''), source: '네이버 증권',
+  const watchPayloadFor = (list: WatchlistId): MarketPayload => {
+    const savedQuotes = savedQuotesFor(list);
+    return { stocks: savedQuotes, indices: [], marketStatus: savedQuotes.some((quote) => quote.marketStatus === 'OPEN') ? 'OPEN' : 'CLOSE',
+      asOf: savedQuotes.reduce((latest, quote) => quote.asOf > latest ? quote.asOf : latest, ''), source: '네이버 증권' };
   };
 
   return <main className={`terminal-shell text-size-${textScale} ${largeText ? 'large-text' : 'compact'}`}>
@@ -443,8 +457,7 @@ export function StockDashboard() {
       <h1 className="brand-lockup">STOCK<span>11</span></h1>
       <TabsList aria-label="시장 보기 선택" className="market-tab-list">
         {views.map((view) => <TabsTrigger key={view.value} value={view.value}>{view.label}</TabsTrigger>)}
-        <TabsTrigger value="watchlist">관심종목</TabsTrigger>
-        <TabsTrigger value="watchlist-chart">관심종목 차트</TabsTrigger>
+        {watchViews.map((view) => <TabsTrigger key={view.value} value={view.value}>{view.label}</TabsTrigger>)}
       </TabsList>
       <div className="session-badges">
         <span className={data.KOSPI?.marketStatus === 'OPEN' ? 'session-open' : ''}><i />KRX {statusLabel(data.KOSPI?.marketStatus)}</span>
@@ -464,7 +477,7 @@ export function StockDashboard() {
         })}
       </div>
       <div className="header-actions">
-        <ProfileLogin sync={sync} localImport={{ type: 'import', watchlist: localWatchlist, highlights: [...localHighlights], largeText: localTextScale > 0, textScale: localTextScale }} />
+        <ProfileLogin sync={sync} localImport={{ type: 'import', watchlist: localWatchlists[0], watchlists: localWatchlists, highlights: [...localHighlights], largeText: localTextScale > 0, textScale: localTextScale }} />
         <span className="refresh-status" title={provider === 'kis' ? 'KIS 체결 수신 · 연결 상태와 구독 수는 하단 표시 · 미구독 종목과 지수는 30초 갱신' : '시세와 분봉을 30초마다 갱신합니다.'}><i className={autoRefresh ? 'on' : ''} />{autoRefresh ? provider === 'kis' ? 'KIS' : '30초' : '멈춤'}</span>
         <Button variant="ghost" size="icon" disabled={busy} onClick={() => void refresh()} aria-label="지금 새로고침" title="지금 새로고침"><RefreshCw className={busy ? 'refreshing' : ''} /></Button>
         <Button variant="ghost" size="icon" onClick={() => setAutoRefresh((value) => !value)} aria-label={autoRefresh ? '자동 갱신 멈춤' : '자동 갱신 시작'} title={autoRefresh ? '자동 갱신 멈춤' : '자동 갱신 시작'}>{autoRefresh ? <Pause /> : <Play />}</Button>
@@ -477,9 +490,9 @@ export function StockDashboard() {
       {views.map((view) => <TabsContent key={view.value} value={view.value} className="market-panel">
         <Board {...view} highlighted={highlighted} onHighlight={onHighlight} payload={data[view.market]} largeText={largeText} textScale={textScale} autoRefresh={autoRefresh} error={errors[view.market]} now={now} provider={provider} />
       </TabsContent>)}
-      {['watchlist', 'watchlist-chart'].map((value) => <TabsContent key={value} value={value} className="market-panel watch-panel">
-        <WatchlistToolbar items={watchlist} onChange={setWatchlist} disabled={sync.enabled && sync.phase !== 'ready'} storageError={sync.enabled ? sync.phase !== 'ready' ? '상단 로그인 후 관심종목을 불러오세요.' : '' : storageError} />
-        <Board market="KOSPI" graph={value.endsWith('-chart')} highlighted={highlighted} onHighlight={onHighlight} watch onReorder={reorderWatch} onRemove={removeWatch} payload={watchPayload} largeText={largeText} textScale={textScale} autoRefresh={autoRefresh} error={watchlist.length ? watchError || (savedQuotes.length ? undefined : '관심종목 시세 수신 중…') : sync.enabled && sync.phase !== 'ready' ? '상단 로그인 후 서버 기록을 불러오세요.' : undefined} now={now} provider={provider} />
+      {watchViews.map((view) => <TabsContent key={view.value} value={view.value} className="market-panel watch-panel">
+        <WatchlistToolbar items={watchlists[view.list]} onChange={(items) => setWatchlist(items, view.list)} disabled={sync.enabled && sync.phase !== 'ready'} storageError={sync.enabled ? sync.phase !== 'ready' ? '상단 로그인 후 관심종목을 불러오세요.' : '' : storageError} />
+        <Board market="KOSPI" graph={view.graph} highlighted={highlighted} onHighlight={onHighlight} watch onReorder={(source, target) => reorderWatch(source, target, view.list)} onRemove={(quote) => removeWatch(quote, view.list)} payload={watchPayloadFor(view.list)} largeText={largeText} textScale={textScale} autoRefresh={autoRefresh} error={watchlists[view.list].length ? watchError || (savedQuotesFor(view.list).length ? undefined : '관심종목 시세 수신 중…') : sync.enabled && sync.phase !== 'ready' ? '상단 로그인 후 서버 기록을 불러오세요.' : undefined} now={now} provider={provider} />
       </TabsContent>)}
     </Tabs>
   </main>;

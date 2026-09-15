@@ -10,6 +10,7 @@ export type Quote = {
   change: number;
   changePrice: number;
   turnover: string;
+  volume?: string;
   asOf: string;
   market?: Exclude<Market, 'SP500' | 'DOW'>;
   marketStatus?: string;

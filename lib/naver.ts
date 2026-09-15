@@ -28,6 +28,7 @@ type Stock = {
   stockEndType: string; itemCode?: string; reutersCode?: string; symbolCode?: string;
   stockName: string; closePrice: string; compareToPreviousClosePrice: string; fluctuationsRatio: string;
   accumulatedTradingValueKrwHangeul?: string; accumulatedTradingValue?: string;
+  accumulatedTradingVolume?: string | number;
   marketStatus: string; localTradedAt: string;
   stockExchangeType?: { name: string };
 };
@@ -46,7 +47,9 @@ function quoteFrom(stock: Stock, fallback: Market): Quote {
     ...(stock.stockEndType === 'etf' ? { instrumentType: 'etf' as const } : {}),
     code: stock.symbolCode ?? stock.itemCode ?? stock.reutersCode ?? '', chartCode: stock.itemCode ?? stock.reutersCode ?? '',
     name: stock.stockName, market, marketStatus: stock.marketStatus, price, changePrice, change, previousClose: price - changePrice,
-    turnover: domestic(market) ? stock.accumulatedTradingValueKrwHangeul ?? '—' : stock.accumulatedTradingValue ?? '—', asOf: stock.localTradedAt,
+    turnover: domestic(market) ? stock.accumulatedTradingValueKrwHangeul ?? '—' : stock.accumulatedTradingValue ?? '—',
+    volume: Number.isFinite(number(stock.accumulatedTradingVolume)) ? number(stock.accumulatedTradingVolume).toLocaleString('en-US') : '—',
+    asOf: stock.localTradedAt,
   };
 }
 
