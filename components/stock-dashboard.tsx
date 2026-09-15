@@ -32,6 +32,7 @@ const watchViews = ([0, 1, 2] as WatchlistId[]).flatMap((list) => [
   { value: list === 0 ? 'watchlist' : `watchlist${list + 1}`, list, graph: false, label: list === 0 ? '관심종목' : `관심종목${list + 1}` },
   { value: list === 0 ? 'watchlist-chart' : `watchlist${list + 1}-chart`, list, graph: true, label: list === 0 ? '관심종목 차트' : `관심종목${list + 1} 차트` },
 ]);
+const textScaleCycle: TextScale[] = [-1, 0, 1, 2, 3, 4, 6];
 const tone = (change: number) => change > 0 ? 'price-up' : change < 0 ? 'price-down' : 'price-flat';
 const formatted = (value: number, market: Market) => value.toLocaleString('en-US', {
   minimumFractionDigits: isUS(market) ? 2 : 0, maximumFractionDigits: isUS(market) ? 2 : 0,
@@ -294,7 +295,7 @@ export function StockDashboard() {
   const textScale = sync.enabled && (sync.phase === 'ready' || sync.phase === 'cached') ? sync.profile.settings.textScale : localTextScale;
   const largeText = textScale > 0;
   const cycleTextScale = () => {
-    const next = ((textScale + 1) % 5) as TextScale;
+    const next = textScaleCycle[(textScaleCycle.indexOf(textScale) + 1) % textScaleCycle.length];
     if (sync.enabled) sync.send({ type: 'settings', largeText: next > 0, textScale: next });
     else {
       setLocalTextScale(next);
@@ -338,7 +339,7 @@ export function StockDashboard() {
     try {
       const scale = Number(localStorage.getItem('stock11.text-scale.v1'));
       // eslint-disable-next-line react/react-compiler -- Restore browser-only text-size preference after hydration.
-      if (Number.isInteger(scale) && scale >= 0 && scale <= 4) setLocalTextScale(scale as TextScale);
+      if (Number.isInteger(scale) && (scale === -1 || (scale >= 0 && scale <= 4) || scale === 6)) setLocalTextScale(scale as TextScale);
       else {
         const saved = localStorage.getItem('stock11.large-text.v1');
         // eslint-disable-next-line react/react-compiler -- Migrate the previous boolean text preference.
@@ -451,7 +452,8 @@ export function StockDashboard() {
       asOf: savedQuotes.reduce((latest, quote) => quote.asOf > latest ? quote.asOf : latest, ''), source: '네이버 증권' };
   };
 
-  return <main className={`terminal-shell text-size-${textScale} ${largeText ? 'large-text' : 'compact'}`}>
+  const textScaleClass = textScale === -1 ? 'small' : textScale === 6 ? 'xlarge' : textScale;
+  return <main className={`terminal-shell text-size-${textScaleClass} ${largeText ? 'large-text' : 'compact'}`}>
     <Tabs value={tab} onValueChange={(value) => setTab(String(value))} className="market-tabs">
     <header className="terminal-header">
       <h1 className="brand-lockup">STOCK<span>11</span></h1>
@@ -482,7 +484,7 @@ export function StockDashboard() {
         <Button variant="ghost" size="icon" disabled={busy} onClick={() => void refresh()} aria-label="지금 새로고침" title="지금 새로고침"><RefreshCw className={busy ? 'refreshing' : ''} /></Button>
         <Button variant="ghost" size="icon" onClick={() => setAutoRefresh((value) => !value)} aria-label={autoRefresh ? '자동 갱신 멈춤' : '자동 갱신 시작'} title={autoRefresh ? '자동 갱신 멈춤' : '자동 갱신 시작'}>{autoRefresh ? <Pause /> : <Play />}</Button>
         <Button variant="ghost" size="icon" onClick={() => void fullscreen()} aria-label="전체 화면" title="전체 화면"><Expand /></Button>
-        <Button variant="ghost" size="icon" onClick={cycleTextScale} aria-label={`글자 크기 전환 · 현재 ${textScale + 1}단계`} title={`글자 크기 ${textScale + 1}/5 · 누르면 다음 단계`}><Type /></Button>
+        <Button variant="ghost" size="icon" onClick={cycleTextScale} aria-label={`글자 크기 전환 · 현재 ${textScaleCycle.indexOf(textScale) + 1}단계`} title={`글자 크기 ${textScaleCycle.indexOf(textScale) + 1}/7 · 누르면 다음 단계`}><Type /></Button>
       </div>
     </header>
       {!sync.enabled && highlightStorageError && <output className="connection-error">{highlightStorageError}</output>}

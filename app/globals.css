@@ -324,7 +324,7 @@ a { color: inherit; text-decoration: none; }
 .index-data .index-change { grid-column: 2; grid-row: 2; }
 .index-item > .mini-chart { grid-column: 2; grid-row: 1; width: 70px; height: 27px; }
 
-/* T cycles through five progressively larger cell and text sizes. */
+/* T cycles through seven progressively sized cell and text stages. */
 .text-size-2 .quote-table .price-col { width: 132px; }
 .text-size-2 .quote-table .rate-col { width: 118px; }
 .text-size-2 .stock-name strong { font-size: 18px; }
@@ -355,6 +355,28 @@ a { color: inherit; text-decoration: none; }
 .text-size-4 .graph-price .current-price { font-size: 30px; }
 .text-size-4 .graph-price .change-rate,
 .text-size-4 .kospi-chart-board .graph-price .change-rate { font-size: 28px; }
+
+/* New stage 1: smaller than the former compact stage. */
+.text-size-small .quote-table .price-col { width: 100px; }
+.text-size-small .quote-table .rate-col { width: 88px; }
+.text-size-small .stock-name strong { font-size: 13px; }
+.text-size-small .current-price { font-size: 16px; }
+.text-size-small .change-rate { font-size: 14px; }
+.text-size-small .graph-identity strong { font-size: 13px; }
+.text-size-small .graph-identity > span { font-size: 10px; }
+.text-size-small .graph-price .current-price { font-size: 17px; }
+.text-size-small .graph-price .change-rate { font-size: 14px; }
+
+/* New stage 7: larger than the former largest stage. */
+.text-size-xlarge .quote-table .price-col { width: 165px; }
+.text-size-xlarge .quote-table .rate-col { width: 152px; }
+.text-size-xlarge .stock-name strong { font-size: 24px; }
+.text-size-xlarge .current-price { font-size: 35px; }
+.text-size-xlarge .change-rate { font-size: 32px; }
+.text-size-xlarge .graph-identity strong { font-size: 24px; }
+.text-size-xlarge .graph-identity > span { font-size: 16px; }
+.text-size-xlarge .graph-price .current-price { font-size: 34px; }
+.text-size-xlarge .graph-price .change-rate { font-size: 31px; }
 
 @media (max-width: 600px) {
   .index-item { grid-template-columns: minmax(0, 1fr); grid-template-rows: 32px 18px; justify-content: stretch; }

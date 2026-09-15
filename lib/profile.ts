@@ -2,7 +2,10 @@ import type { StockSelection } from './market-types';
 import { restoreWatchlist, symbolKey } from './watchlist';
 import { restoreHighlights, type HighlightColor } from './stock-highlights';
 
-export type TextScale = 0 | 1 | 2 | 3 | 4;
+// Values 0–4 are kept stable for existing saved profiles. -1 is the new
+// smaller stage and 6 is the new largest stage; 5 remains reserved so old
+// clients/tests that reject it continue to fail closed.
+export type TextScale = -1 | 0 | 1 | 2 | 3 | 4 | 6;
 export type WatchlistId = 0 | 1 | 2;
 export type Profile = { version: 1; revision: number; updatedAt: string | null; watchlist: StockSelection[]; watchlists?: [StockSelection[], StockSelection[], StockSelection[]]; highlights: [string, HighlightColor][]; settings: { largeText: boolean; textScale: TextScale } };
 export type ProfileOperation =
@@ -14,7 +17,7 @@ export type ProfileOperation =
   | { type: 'import'; watchlist: StockSelection[]; watchlists?: [StockSelection[], StockSelection[], StockSelection[]]; highlights: [string, HighlightColor][]; largeText?: boolean; textScale?: TextScale };
 export const emptyProfile = (): Profile => ({ version: 1, revision: 0, updatedAt: null, watchlist: [], highlights: [], settings: { largeText: true, textScale: 1 } });
 const validKey = (key: unknown): key is string => typeof key === 'string' && /^(KOSPI|KOSDAQ|NASDAQ|NYSE|AMEX):[A-Za-z0-9.^-]{1,24}$/.test(key);
-const validTextScale = (value: unknown): value is TextScale => Number.isInteger(value) && Number(value) >= 0 && Number(value) <= 4;
+const validTextScale = (value: unknown): value is TextScale => Number.isInteger(value) && (value === -1 || (Number(value) >= 0 && Number(value) <= 4) || value === 6);
 const validList = (value: unknown): value is WatchlistId => value === undefined || value === 0 || value === 1 || value === 2;
 export function profileWatchlists(profile: Profile): [StockSelection[], StockSelection[], StockSelection[]] {
   const lists = profile.watchlists;
