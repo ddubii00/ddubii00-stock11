@@ -249,7 +249,8 @@ a { color: inherit; text-decoration: none; }
 .watch-quote-table .stock-name { position: sticky; }
 .watch-quote-table .stock-name .stock-remove { top: 1px; right: 1px; width: 16px; height: 16px; padding: 1px; }
 .watch-quote-table { min-width: 430px; }
-.volume-cell { color: #52685a; font-size: 13px; font-variant-numeric: tabular-nums; }
+.volume-head { text-align: left !important; padding-left: 2px !important; padding-right: 2px !important; }
+.volume-cell { padding-left: 2px !important; padding-right: 2px !important; color: #52685a; font-size: 13px; font-variant-numeric: tabular-nums; }
 .change-arrow { display: inline-block; width: 14px; text-align: center; }
 
 .terminal-header { flex-basis: 68px; display: grid; grid-template-columns: 74px minmax(0, 1fr) auto; grid-template-rows: 29px 35px; grid-template-areas: 'brand tabs actions' 'sessions indices indices'; gap: 0 7px; padding-block: 2px; }
@@ -329,8 +330,9 @@ a { color: inherit; text-decoration: none; }
 .index-item > .mini-chart { grid-column: 2; grid-row: 1; width: 70px; height: 27px; }
 
 /* T cycles through seven progressively sized cell and text stages. */
-.text-size-2 .quote-table .price-col { width: 132px; }
-.text-size-2 .quote-table .rate-col { width: 118px; }
+.text-size-2 .quote-table .price-col { width: 124px; }
+.text-size-2 .quote-table .rate-col { width: 108px; }
+.text-size-2 .quote-table .volume-col { width: 120px; }
 .text-size-2 .stock-name strong { font-size: 18px; }
 .text-size-2 .current-price { font-size: 25px; }
 .text-size-2 .change-rate { font-size: 22px; }
@@ -339,8 +341,9 @@ a { color: inherit; text-decoration: none; }
 .text-size-2 .graph-price .current-price { font-size: 24px; }
 .text-size-2 .graph-price .change-rate,
 .text-size-2 .kospi-chart-board .graph-price .change-rate { font-size: 22px; }
-.text-size-3 .quote-table .price-col { width: 140px; }
-.text-size-3 .quote-table .rate-col { width: 126px; }
+.text-size-3 .quote-table .price-col { width: 132px; }
+.text-size-3 .quote-table .rate-col { width: 116px; }
+.text-size-3 .quote-table .volume-col { width: 124px; }
 .text-size-3 .stock-name strong { font-size: 20px; }
 .text-size-3 .current-price { font-size: 28px; }
 .text-size-3 .change-rate { font-size: 25px; }
@@ -349,8 +352,9 @@ a { color: inherit; text-decoration: none; }
 .text-size-3 .graph-price .current-price { font-size: 27px; }
 .text-size-3 .graph-price .change-rate,
 .text-size-3 .kospi-chart-board .graph-price .change-rate { font-size: 25px; }
-.text-size-4 .quote-table .price-col { width: 150px; }
-.text-size-4 .quote-table .rate-col { width: 138px; }
+.text-size-4 .quote-table .price-col { width: 140px; }
+.text-size-4 .quote-table .rate-col { width: 124px; }
+.text-size-4 .quote-table .volume-col { width: 128px; }
 .text-size-4 .stock-name strong { font-size: 22px; }
 .text-size-4 .current-price { font-size: 31px; }
 .text-size-4 .change-rate { font-size: 28px; }
@@ -372,8 +376,9 @@ a { color: inherit; text-decoration: none; }
 .text-size-small .graph-price .change-rate { font-size: 14px; }
 
 /* New stage 7: larger than the former largest stage. */
-.text-size-xlarge .quote-table .price-col { width: 165px; }
-.text-size-xlarge .quote-table .rate-col { width: 152px; }
+.text-size-xlarge .quote-table .price-col { width: 145px; }
+.text-size-xlarge .quote-table .rate-col { width: 130px; }
+.text-size-xlarge .quote-table .volume-col { width: 140px; }
 .text-size-xlarge .stock-name strong { font-size: 24px; }
 .text-size-xlarge .current-price { font-size: 35px; }
 .text-size-xlarge .change-rate { font-size: 32px; }

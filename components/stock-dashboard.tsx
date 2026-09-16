@@ -249,7 +249,7 @@ export function Board({ market, graph, payload, largeText, textScale = largeText
           {columns.map((column, columnIndex) => <section className="quote-column" key={columnIndex} tabIndex={0} aria-label={`${market} ${columnIndex + 1}열 시세 스크롤 영역`}>
             <Table className={`quote-table ${watch ? 'watch-quote-table' : ''}`}>
               <colgroup><col className="rank-col" /><col /><col className="price-col" /><col className="rate-col" />{watch && <col className="volume-col" />}{hasActions && <col className="remove-col" />}</colgroup>
-              <TableHeader><TableRow><TableHead scope="col">#</TableHead><TableHead scope="col">종목명</TableHead><TableHead scope="col">현재가</TableHead><TableHead scope="col">등락률</TableHead>{watch && <TableHead scope="col">거래량</TableHead>}{hasActions && <TableHead scope="col"><span className="sr-only">관리</span></TableHead>}</TableRow></TableHeader>
+              <TableHeader><TableRow><TableHead scope="col">#</TableHead><TableHead scope="col">종목명</TableHead><TableHead scope="col">현재가</TableHead><TableHead scope="col">등락률</TableHead>{watch && <TableHead scope="col" className="volume-head">거래량</TableHead>}{hasActions && <TableHead scope="col"><span className="sr-only">관리</span></TableHead>}</TableRow></TableHeader>
               <TableBody>{column.map((quote, index) => {
                 const key = symbolKey({ market: quote.market ?? market, chartCode: quote.chartCode });
                 // The rank button provides keyboard access; the row extends its pointer hit area.
