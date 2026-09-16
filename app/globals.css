@@ -245,6 +245,8 @@ a { color: inherit; text-decoration: none; }
 .quote-table .remove-col { width: 20px; }
 .quote-table .stock-remove-cell { position: relative; padding: 0; }
 .quote-table .stock-remove-cell .stock-remove { position: relative; top: auto; right: auto; display: flex; margin: 1px 1px 0 auto; }
+.watch-quote-table .stock-name { position: sticky; }
+.watch-quote-table .stock-name .stock-remove { top: 1px; right: 1px; width: 16px; height: 16px; padding: 1px; }
 .watch-quote-table { min-width: 430px; }
 .volume-cell { color: #52685a; font-size: 13px; font-variant-numeric: tabular-nums; }
 .change-arrow { display: inline-block; width: 14px; text-align: center; }

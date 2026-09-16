@@ -103,7 +103,9 @@ export function Board({ market, graph, payload, largeText, textScale = largeText
   const currentPage = Math.min(page, pageCount - 1);
   const offset = currentPage * layout.capacity;
   const visible = quotes.slice(offset, offset + layout.capacity);
-  const hasActions = Boolean(onRemove);
+  // Watchlist rows place the delete control inside the sticky name cell so it
+  // remains visible even when a narrow viewport hides trailing columns.
+  const hasActions = Boolean(onRemove) && !watch;
   const quoteKey = (quote: Quote) => symbolKey({ market: quote.market ?? market, chartCode: quote.chartCode });
   const endDrag = () => { dragSource.current = null; setDropTarget(null); };
   const moveStock = (source: string, target: string) => {
@@ -257,7 +259,7 @@ export function Board({ market, graph, payload, largeText, textScale = largeText
                   if (!(event.target as Element).closest('a, button')) highlightDoubleClick(key);
                 }}>
                 <TableCell className="rank"><Button variant="ghost" className="rank-highlight-toggle" aria-label={`${quote.name} ${highlightLabel}`} title={highlightHint} aria-pressed={isHighlighted(key)} onClick={(event) => highlightClick(event, key)} onDoubleClick={() => highlightDoubleClick(key)}>{offset + columnIndex * layout.rows + index + 1}</Button></TableCell>
-                <TableCell className="stock-name" title={`${quote.name} (${quote.code}) · ${quote.market} ${statusLabel(quote.marketStatus)} · ${quote.asOf} · 거래대금 ${quote.turnover}`}><a href={stockUrl(quote, quote.market ?? market)} target="_blank" rel="noopener noreferrer"><strong>{quote.name}</strong></a></TableCell>
+                <TableCell className="stock-name" title={`${quote.name} (${quote.code}) · ${quote.market} ${statusLabel(quote.marketStatus)} · ${quote.asOf} · 거래대금 ${quote.turnover}`}><a href={stockUrl(quote, quote.market ?? market)} target="_blank" rel="noopener noreferrer"><strong>{quote.name}</strong></a>{watch && onRemove && <Button variant="ghost" size="icon" className="stock-remove" aria-label={`${quote.name} 관심종목 삭제`} title="관심종목 삭제" onClick={() => onRemove(quote)}><X /></Button>}</TableCell>
                 <TableCell><Price quote={quote} market={quote.market ?? market} /></TableCell>
                 <TableCell>{quote.pending ? <span className="price-flat">—</span> : <Change value={quote.change} />}</TableCell>
                 {watch && <TableCell className="volume-cell">{quote.pending ? '—' : quote.volume ?? '—'}</TableCell>}
