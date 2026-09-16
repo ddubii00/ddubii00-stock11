@@ -75,9 +75,9 @@ a { color: inherit; text-decoration: none; }
 .quote-column:focus-visible { outline: 2px solid #14684f; outline-offset: -2px; }
 .quote-table { --rank-width: 26px; table-layout: fixed; border-collapse: separate; border-spacing: 0; width: 100%; min-width: 340px; }
 .quote-table .rank-col { width: var(--rank-width); }
-.quote-table .price-col { width: 108px; }
-.quote-table .rate-col { width: 103px; }
-.quote-table .volume-col { width: 88px; }
+.quote-table .price-col { width: 100px; }
+.quote-table .rate-col { width: 95px; }
+.quote-table .volume-col { width: 110px; }
 .quote-table thead { height: 25px; background: #eaf0ec; }
 .quote-table th { height: 25px; padding: 0 6px; color: #597160; font-size: 12px; font-weight: 600; }
 .quote-table thead th { position: sticky; top: 0; z-index: 3; background: #eaf0ec; box-shadow: inset 0 -1px #d2ddd6; }
@@ -129,8 +129,9 @@ a { color: inherit; text-decoration: none; }
 .compact .graph-price .current-price { font-size: 18px; }
 .compact .graph-price .change-rate { font-size: 16px; }
 @media (min-width: 1650px) {
-  .quote-table .price-col { width: 114px; }
-  .quote-table .rate-col { width: 110px; }
+  .quote-table .price-col { width: 106px; }
+  .quote-table .rate-col { width: 102px; }
+  .quote-table .volume-col { width: 116px; }
   .current-price { font-size: 22px; }
   .change-rate { font-size: 20px; }
   .stock-name strong { font-size: 16px; }
@@ -167,9 +168,9 @@ a { color: inherit; text-decoration: none; }
   .market-tab-list { width: 100%; height: 53px !important; display: grid; grid-template-columns: repeat(7, minmax(0, 1fr)); grid-template-rows: repeat(2, 24px); }
   .market-tab-list button { min-width: 0; height: 24px; padding-inline: 1px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: 9px; }
   .quote-table { --rank-width: 23px; }
-  .quote-table .price-col { width: 104px; }
-  .quote-table .rate-col { width: 97px; }
-  .quote-table .volume-col { width: 74px; }
+  .quote-table .price-col { width: 96px; }
+  .quote-table .rate-col { width: 88px; }
+  .quote-table .volume-col { width: 96px; }
   .quote-table td, .quote-table th { padding-inline: 5px; }
   .stock-name strong { font-size: 14px; }
   .board-footer > p { font-size: 10px; }
