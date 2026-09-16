@@ -75,7 +75,7 @@ a { color: inherit; text-decoration: none; }
 .quote-column:focus-visible { outline: 2px solid #14684f; outline-offset: -2px; }
 .quote-table { --rank-width: 26px; table-layout: fixed; border-collapse: separate; border-spacing: 0; width: 100%; min-width: 340px; }
 .quote-table .rank-col { width: var(--rank-width); }
-.quote-table .price-col { width: 116px; }
+.quote-table .price-col { width: 108px; }
 .quote-table .rate-col { width: 103px; }
 .quote-table .volume-col { width: 88px; }
 .quote-table thead { height: 25px; background: #eaf0ec; }
@@ -129,7 +129,7 @@ a { color: inherit; text-decoration: none; }
 .compact .graph-price .current-price { font-size: 18px; }
 .compact .graph-price .change-rate { font-size: 16px; }
 @media (min-width: 1650px) {
-  .quote-table .price-col { width: 122px; }
+  .quote-table .price-col { width: 114px; }
   .quote-table .rate-col { width: 110px; }
   .current-price { font-size: 22px; }
   .change-rate { font-size: 20px; }
@@ -167,7 +167,7 @@ a { color: inherit; text-decoration: none; }
   .market-tab-list { width: 100%; height: 53px !important; display: grid; grid-template-columns: repeat(7, minmax(0, 1fr)); grid-template-rows: repeat(2, 24px); }
   .market-tab-list button { min-width: 0; height: 24px; padding-inline: 1px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: 9px; }
   .quote-table { --rank-width: 23px; }
-  .quote-table .price-col { width: 111px; }
+  .quote-table .price-col { width: 104px; }
   .quote-table .rate-col { width: 97px; }
   .quote-table .volume-col { width: 74px; }
   .quote-table td, .quote-table th { padding-inline: 5px; }
@@ -244,6 +244,7 @@ a { color: inherit; text-decoration: none; }
 .watch-quote-table .stock-remove { height: 12px; padding: 1px; }
 .quote-table .remove-col { width: 20px; }
 .quote-table .stock-remove-cell { position: relative; padding: 0; }
+.quote-table .stock-remove-cell .stock-remove { position: relative; top: auto; right: auto; display: flex; margin: 1px 1px 0 auto; }
 .watch-quote-table { min-width: 430px; }
 .volume-cell { color: #52685a; font-size: 13px; font-variant-numeric: tabular-nums; }
 .change-arrow { display: inline-block; width: 14px; text-align: center; }

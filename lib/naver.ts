@@ -23,12 +23,15 @@ export async function naverJson<T>(url: string, ttl = 7000): Promise<T> {
   try { return await task; } finally { pending.delete(url); }
 }
 
-const number = (value: string | number | undefined | null) => Number(String(value ?? '').replaceAll(',', ''));
+const number = (value: string | number | undefined | null) => {
+  const text = String(value ?? '').replaceAll(',', '').trim();
+  return text ? Number(text) : Number.NaN;
+};
 type Stock = {
   stockEndType: string; itemCode?: string; reutersCode?: string; symbolCode?: string;
   stockName: string; closePrice: string; compareToPreviousClosePrice: string; fluctuationsRatio: string;
   accumulatedTradingValueKrwHangeul?: string; accumulatedTradingValue?: string;
-  accumulatedTradingVolume?: string | number;
+  accumulatedTradingVolume?: string | number; tradeVolume?: string | number; volume?: string | number;
   marketStatus: string; localTradedAt: string;
   stockExchangeType?: { name: string };
 };
@@ -43,14 +46,29 @@ function quoteFrom(stock: Stock, fallback: Market): Quote {
   const market = exchange(stock, fallback);
   const price = number(stock.closePrice), changePrice = number(stock.compareToPreviousClosePrice), change = number(stock.fluctuationsRatio);
   if (![price, changePrice, change].every(Number.isFinite) || price <= 0) throw new Error('유효한 현재가가 없습니다.');
+  const volume = stock.accumulatedTradingVolume ?? stock.tradeVolume ?? stock.volume;
   return {
     ...(stock.stockEndType === 'etf' ? { instrumentType: 'etf' as const } : {}),
     code: stock.symbolCode ?? stock.itemCode ?? stock.reutersCode ?? '', chartCode: stock.itemCode ?? stock.reutersCode ?? '',
     name: stock.stockName, market, marketStatus: stock.marketStatus, price, changePrice, change, previousClose: price - changePrice,
     turnover: domestic(market) ? stock.accumulatedTradingValueKrwHangeul ?? '—' : stock.accumulatedTradingValue ?? '—',
-    volume: Number.isFinite(number(stock.accumulatedTradingVolume)) ? number(stock.accumulatedTradingVolume).toLocaleString('en-US') : '—',
+    volume: Number.isFinite(number(volume)) ? number(volume).toLocaleString('en-US') : '—',
     asOf: stock.localTradedAt,
   };
+}
+
+// The lightweight /basic endpoint does not expose accumulated volume for
+// domestic stocks. Fill only that missing field from Naver's realtime polling
+// endpoint; failures remain non-fatal so price boards keep working.
+async function readDomesticRealtimeVolume(code: string): Promise<string | number | undefined> {
+  try {
+    const payload = await naverJson<{ datas?: Pick<Stock, 'accumulatedTradingVolume'>[] }>(
+      `https://polling.finance.naver.com/api/realtime/domestic/stock/${encodeURIComponent(code)}`, 5000,
+    );
+    return payload.datas?.[0]?.accumulatedTradingVolume;
+  } catch {
+    return undefined;
+  }
 }
 
 export async function readStocks(market: Market): Promise<Omit<MarketPayload, 'indices'>> {
@@ -170,6 +188,10 @@ export async function readQuote(market: Market, code: string): Promise<Quote> {
   const root = domestic(market) ? 'https://m.stock.naver.com/api' : 'https://api.stock.naver.com';
   const stock = await naverJson<Stock>(`${root}/stock/${encodeURIComponent(code)}/basic`);
   if (!['stock', 'etf'].includes(stock.stockEndType)) throw new Error('주식 또는 ETF 종목이 아닙니다.');
+  if (domestic(market) && !Number.isFinite(number(stock.accumulatedTradingVolume ?? stock.tradeVolume ?? stock.volume))) {
+    const volume = await readDomesticRealtimeVolume(code);
+    if (volume !== undefined) stock.accumulatedTradingVolume = volume;
+  }
   return quoteFrom(stock, market);
 }
 

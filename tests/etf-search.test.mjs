@@ -35,3 +35,15 @@ test('Korean and US ETF quotes and minute series work through the common provide
     assert.deepEqual(series.points, [{ minute: 570, price: 101 }]);
   }
 });
+
+test('domestic watchlist quotes fill missing volume from the realtime endpoint', async () => {
+  globalThis.fetch = async (url) => Response.json(typeof url === 'string' && url.includes('polling.finance.naver.com') ? {
+    datas: [{ accumulatedTradingVolume: '1,234,567' }],
+  } : {
+    stockEndType: 'stock', itemCode: '000660', reutersCode: '000660', stockName: 'SK하이닉스', closePrice: '100',
+    compareToPreviousClosePrice: '1', fluctuationsRatio: '1', marketStatus: 'OPEN', localTradedAt: '2026-09-08T10:00:00',
+    stockExchangeType: { name: 'KOSPI' },
+  });
+  const quote = await readQuote('KOSPI', '000660');
+  assert.equal(quote.volume, '1,234,567');
+});
