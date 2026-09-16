@@ -71,6 +71,22 @@ async function readDomesticRealtimeVolume(code: string): Promise<string | number
   }
 }
 
+// Foreign basic snapshots can return an apostrophe placeholder for volume.
+// The latest daily bar carries the numeric accumulated volume instead.
+async function readForeignVolume(code: string): Promise<string | number | undefined> {
+  try {
+    const payload = await naverJson<{ priceInfos?: { accumulatedTradingVolume?: string | number }[] }>(
+      `https://api.stock.naver.com/chart/foreign/item/${encodeURIComponent(code)}?periodType=dayCandle`, 5000,
+    );
+    for (const bar of [...(payload.priceInfos ?? [])].reverse()) {
+      if (Number.isFinite(number(bar.accumulatedTradingVolume))) return bar.accumulatedTradingVolume;
+    }
+  } catch {
+    // Keep the quote usable when the optional volume request is unavailable.
+  }
+  return undefined;
+}
+
 export async function readStocks(market: Market): Promise<Omit<MarketPayload, 'indices'>> {
   const url = (page: number) => market === 'SP500' || market === 'DOW'
     ? `https://api.stock.naver.com/index/${market === 'DOW' ? '.DJI' : '.INX'}/stocks?page=${page}&pageSize=100`
@@ -190,6 +206,10 @@ export async function readQuote(market: Market, code: string): Promise<Quote> {
   if (!['stock', 'etf'].includes(stock.stockEndType)) throw new Error('주식 또는 ETF 종목이 아닙니다.');
   if (domestic(market) && !Number.isFinite(number(stock.accumulatedTradingVolume ?? stock.tradeVolume ?? stock.volume))) {
     const volume = await readDomesticRealtimeVolume(code);
+    if (volume !== undefined) stock.accumulatedTradingVolume = volume;
+  }
+  if (!domestic(market) && !Number.isFinite(number(stock.accumulatedTradingVolume ?? stock.tradeVolume ?? stock.volume))) {
+    const volume = await readForeignVolume(code);
     if (volume !== undefined) stock.accumulatedTradingVolume = volume;
   }
   return quoteFrom(stock, market);

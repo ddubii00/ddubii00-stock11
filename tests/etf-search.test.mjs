@@ -47,3 +47,15 @@ test('domestic watchlist quotes fill missing volume from the realtime endpoint',
   const quote = await readQuote('KOSPI', '000660');
   assert.equal(quote.volume, '1,234,567');
 });
+
+test('foreign watchlist quotes replace apostrophe volume placeholders with numeric bars', async () => {
+  globalThis.fetch = async (url) => Response.json(typeof url === 'string' && url.includes('/chart/foreign/item/') ? {
+    priceInfos: [{ accumulatedTradingVolume: 9876543 }],
+  } : {
+    stockEndType: 'stock', reutersCode: 'AAPL.O', stockName: 'Apple', closePrice: '200',
+    compareToPreviousClosePrice: '2', fluctuationsRatio: '1', accumulatedTradingVolume: "'", marketStatus: 'OPEN',
+    localTradedAt: '2026-09-08T10:00:00', stockExchangeType: { name: 'NASDAQ' },
+  });
+  const quote = await readQuote('NASDAQ', 'AAPL.O');
+  assert.equal(quote.volume, '9,876,543');
+});
