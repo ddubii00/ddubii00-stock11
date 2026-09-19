@@ -171,7 +171,7 @@ export async function readIndices(): Promise<IndexQuote[]> {
   return jobs.flatMap((job) => job.status === 'fulfilled' ? job.value : []);
 }
 
-export async function readMinutes(market: Market, code: string, index = false): Promise<MinuteSeries> {
+export async function readMinutes(market: Market, code: string, index = false, afterMarket = false): Promise<MinuteSeries> {
   const region = domestic(market) ? 'domestic' : 'foreign';
   const data = await naverJson<{
     tradeBaseAt: string; lastClosePrice: number; localDateTimeNow: string;
@@ -179,14 +179,19 @@ export async function readMinutes(market: Market, code: string, index = false): 
   }>(`https://api.stock.naver.com/chart/${region}/${index ? 'index' : 'item'}/${encodeURIComponent(code)}?periodType=day`, 15000);
   if (!data.tradeBaseAt || !Array.isArray(data.priceInfos)) throw new Error('분봉 데이터를 받지 못했습니다.');
   const start = domestic(market) ? 540 : 570;
-  const end = domestic(market) ? 930 : 960;
+  // KRX2 deliberately keeps the empty 15:30–16:00 interval on the fixed
+  // axis, then draws only real NXT/after-market points through 20:00.
+  const end = domestic(market) ? afterMarket ? 1200 : 930 : 960;
+  const session = domestic(market)
+    ? { start, end, timeZone: 'Asia/Seoul', ticks: afterMarket ? [540, 660, 780, 930, 960, 1080, 1200] : [540, 660, 780, 930] }
+    : { start, end, timeZone: 'America/New_York', ticks: [570, 720, 840, 960] };
   return {
     market, code, date: data.tradeBaseAt, previousClose: data.lastClosePrice, asOf: data.localDateTimeNow,
     points: data.priceInfos.filter((item) => item.localDateTime.startsWith(data.tradeBaseAt)
       && item.localDateTime <= data.localDateTimeNow && item.currentPrice > 0).map((item) => ({
         minute: Number(item.localDateTime.slice(8, 10)) * 60 + Number(item.localDateTime.slice(10, 12)),
         price: item.currentPrice,
-      })).filter((point) => point.minute >= start && point.minute <= end),
+      })).filter((point) => point.minute >= start && point.minute <= end), session,
   };
 }
 

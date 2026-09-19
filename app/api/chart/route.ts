@@ -9,6 +9,7 @@ export async function GET(request: Request) {
   const params = new URL(request.url).searchParams;
   const market = params.get('market');
   const mixed = params.has('symbols');
+  const afterMarket = params.get('after') === '1';
   const items = parseSymbols(mixed ? params.get('symbols')! : (params.get('codes') ?? '').split(',').map((code) => `${market}:${code}`).join(','));
   if (!items) {
     return Response.json({ error: '시장 또는 종목코드가 올바르지 않습니다.' }, { status: 400 });
@@ -25,7 +26,7 @@ export async function GET(request: Request) {
       const item = items[cursor++], key = mixed ? symbolKey(item) : item.chartCode;
       try {
         if (params.get('kind') === 'candles') candles[key] = await readCandles(item.market, item.chartCode);
-        else series[key] = await readMinutes(item.market, item.chartCode);
+        else series[key] = await readMinutes(item.market, item.chartCode, false, afterMarket);
       } catch { errors[key] = '차트 수신 대기'; }
     }
   }));

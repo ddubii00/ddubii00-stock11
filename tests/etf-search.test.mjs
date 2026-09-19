@@ -83,3 +83,21 @@ test('KRX2 uses Naver after-market quote fields while KRX keeps the regular clos
   assert.equal(after.stocks[0].volume, '765,432');
   assert.match(after.source, /장후 포함/);
 });
+
+test('KRX2 minute series preserves actual after-market points through 20:00 while KRX ends at 15:30', async () => {
+  globalThis.fetch = async () => Response.json({
+    tradeBaseAt: '20260908', lastClosePrice: 100, localDateTimeNow: '20260908200000',
+    priceInfos: [
+      { localDateTime: '20260908090000', currentPrice: 100 },
+      { localDateTime: '20260908153000', currentPrice: 101 },
+      { localDateTime: '20260908155900', currentPrice: 102 },
+      { localDateTime: '20260908160000', currentPrice: 103 },
+      { localDateTime: '20260908195900', currentPrice: 104 },
+    ],
+  });
+  const regular = await readMinutes('KOSPI', '987654');
+  const after = await readMinutes('KOSPI', '987654', false, true);
+  assert.deepEqual(regular.points.map((point) => point.minute), [540, 930]);
+  assert.deepEqual(after.points.map((point) => point.minute), [540, 930, 959, 960, 1199]);
+  assert.equal(after.session.end, 1200);
+});

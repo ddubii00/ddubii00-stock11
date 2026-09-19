@@ -53,9 +53,10 @@ function Price({ quote, market }: { quote: Quote; market: Market }) {
   return <strong className={`current-price ${tone(quote.change)}`}>{isUS(market) ? '$' : ''}{formatted(quote.price, market)}</strong>;
 }
 
-export function Board({ market, graph, payload, largeText, textScale = largeText ? 1 : 0, autoRefresh, error, now, provider, watch = false, onRemove, onReorder, highlighted, onHighlight }: {
+export function Board({ market, graph, payload, largeText, textScale = largeText ? 1 : 0, autoRefresh, error, now, provider, afterMarket = false, watch = false, onRemove, onReorder, highlighted, onHighlight }: {
   market: Market; graph: boolean; payload?: MarketPayload; largeText: boolean; textScale?: TextScale;
   autoRefresh: boolean; error?: string; now: number; provider: 'naver' | 'kis';
+  afterMarket?: boolean;
   watch?: boolean; onRemove?: (quote: Quote) => void;
   onReorder?: (source: string, target: string) => void;
   highlighted?: ReadonlyMap<string, HighlightColor>; onHighlight?: (key: string, color?: HighlightColor) => void;
@@ -204,7 +205,7 @@ export function Board({ market, graph, payload, largeText, textScale = largeText
         const symbols = codes.split(','), failures: Record<string, string> = {};
         // Sequential 32-stock batches bound serverless fan-out as density grows.
         for (let offset = 0; offset < symbols.length; offset += 32) {
-        const response = await fetch(`${apiPath('/api/chart')}?symbols=${encodeURIComponent(symbols.slice(offset, offset + 32).join(','))}&kind=minutes`, { signal: controller.signal });
+        const response = await fetch(`${apiPath('/api/chart')}?symbols=${encodeURIComponent(symbols.slice(offset, offset + 32).join(','))}&kind=minutes${afterMarket ? '&after=1' : ''}`, { signal: controller.signal });
         if (!response.ok) throw new Error('차트 조회 실패');
         const result = await response.json() as { series: Record<string, MinuteSeries>; errors: Record<string, string> };
         if (!controller.signal.aborted) {
@@ -220,7 +221,7 @@ export function Board({ market, graph, payload, largeText, textScale = largeText
     void update();
     const timer = autoRefresh ? window.setInterval(() => { if (!document.hidden) void update(); }, REFRESH_MS) : undefined;
     return () => { controller.abort(); if (timer) window.clearInterval(timer); };
-  }, [market, codes, autoRefresh, size.width]);
+  }, [market, codes, autoRefresh, size.width, afterMarket]);
 
   const columns = Array.from({ length: layout.columns }, (_, column) => visible.slice(column * layout.rows, (column + 1) * layout.rows));
   const asOf = payload?.asOf ? new Date(payload.asOf).toLocaleString('ko-KR', {
@@ -508,11 +509,11 @@ export function StockDashboard() {
       {!sync.enabled && highlightStorageError && <output className="connection-error">{highlightStorageError}</output>}
       {sync.message && <div className="profile-message"><output className="connection-error">{sync.message}</output><Button variant="ghost" onClick={() => void (sync.unsaved ? sync.retry() : sync.refresh())}>{sync.unsaved ? '다시 저장' : '다시 불러오기'}</Button></div>}
       {views.map((view) => <TabsContent key={view.value} value={view.value} className="market-panel">
-        <Board {...view} highlighted={highlighted} onHighlight={onHighlight} payload={data[view.market]} largeText={largeText} textScale={textScale} autoRefresh={autoRefresh} error={errors[view.market]} now={now} provider={provider} />
+        <Board {...view} highlighted={highlighted} onHighlight={onHighlight} payload={data[view.market]} largeText={largeText} textScale={textScale} autoRefresh={autoRefresh} error={errors[view.market]} now={now} provider={provider} afterMarket={krxMode === 'KRX2'} />
       </TabsContent>)}
       {watchViews.map((view) => <TabsContent key={view.value} value={view.value} className="market-panel watch-panel">
         <WatchlistToolbar items={watchlists[view.list]} onChange={(items) => setWatchlist(items, view.list)} disabled={sync.enabled && sync.phase !== 'ready'} storageError={sync.enabled ? sync.phase !== 'ready' ? '상단 로그인 후 관심종목을 불러오세요.' : '' : storageError} />
-        <Board market="KOSPI" graph={view.graph} highlighted={highlighted} onHighlight={onHighlight} watch onReorder={(source, target) => reorderWatch(source, target, view.list)} onRemove={(quote) => removeWatch(quote, view.list)} payload={watchPayloadFor(view.list)} largeText={largeText} textScale={textScale} autoRefresh={autoRefresh} error={watchlists[view.list].length ? watchError || (savedQuotesFor(view.list).length ? undefined : '관심종목 시세 수신 중…') : sync.enabled && sync.phase !== 'ready' ? '상단 로그인 후 서버 기록을 불러오세요.' : undefined} now={now} provider={provider} />
+        <Board market="KOSPI" graph={view.graph} highlighted={highlighted} onHighlight={onHighlight} watch onReorder={(source, target) => reorderWatch(source, target, view.list)} onRemove={(quote) => removeWatch(quote, view.list)} payload={watchPayloadFor(view.list)} largeText={largeText} textScale={textScale} autoRefresh={autoRefresh} error={watchlists[view.list].length ? watchError || (savedQuotesFor(view.list).length ? undefined : '관심종목 시세 수신 중…') : sync.enabled && sync.phase !== 'ready' ? '상단 로그인 후 서버 기록을 불러오세요.' : undefined} now={now} provider={provider} afterMarket={krxMode === 'KRX2'} />
       </TabsContent>)}
     </Tabs>
   </main>;
