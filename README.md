@@ -110,7 +110,7 @@ docker compose --env-file .env.oracle up -d
 
 ## KIS 실시간 방식과 세션 분리
 
-Oracle에서는 KIS relay만 App Key/Secret과 access token을 보관합니다. 앱 컨테이너는 사설 Docker 네트워크의 relay `/quotes`·`/stream`만 호출하며, 키·시크릿·bearer token을 받거나 로그에 남기지 않습니다. relay는 access token을 재사용하고 국내 현재가 REST를 종목별로 25초 캐시·동시 4개로 제한합니다.
+Oracle에서는 KIS relay만 App Key/Secret과 access token을 보관합니다. 앱 컨테이너는 사설 Docker 네트워크의 relay `/quotes`·`/stream`만 호출하며, 키·시크릿·bearer token을 받거나 로그에 남기지 않습니다. relay는 access token을 재사용하고 국내 현재가 REST를 세션별 25초 캐시·동일 요청 deduplication·전역 queue로 제한합니다. 기본 간격은 350ms, 동시성은 2이며 `KIS_REST_MIN_INTERVAL_MS`, `KIS_REST_MAX_CONCURRENCY`로 조절합니다.
 
 - **KRX**는 KIS 현재가 REST의 `J`(KRX)만 사용하며, 정규장 15:30 가격을 `regular` 캐시에 따로 보관합니다. 예를 들어 15:30의 1,857,000원은 장후 가격으로 바뀌지 않습니다.
 - **KRX2**는 KIS 현재가 REST의 `UN`(KRX/NXT 통합)만 사용하며 `after` 캐시에 보관합니다. 16:00–20:00의 실제 통합 체결값(예: 1,849,000원)을 KRX 정규장 캐시와 섞지 않습니다. KIS가 실패하거나 지원하지 않는 종목만 네이버 장후 필드를 명시적 fallback으로 사용합니다.
@@ -136,8 +136,11 @@ relay `/health`는 Docker 사설망에서만 열리며 키·토큰 없이 WebSoc
 ```sh
 curl -sS 'http://127.0.0.1:3011/stock11-7/api/market?market=KOSPI' | jq '.stocks[] | select(.chartCode=="000660") | {price,priceSource,priceSession,asOf,fetchedAt,volume}'
 curl -sS 'http://127.0.0.1:3011/stock11-7/api/market?market=KOSPI&after=1' | jq '.stocks[] | select(.chartCode=="000660") | {price,priceSource,priceSession,asOf,fetchedAt,volume}'
+curl -sS 'http://127.0.0.1:3011/stock11-7/api/market?market=KOSPI' | jq '[.stocks[].priceSource] | group_by(.) | map({source: .[0], count: length})'
 docker compose --env-file .env.oracle exec kis-relay node -e "fetch('http://127.0.0.1:8091/health').then(r=>r.json()).then(console.log)"
 ```
+
+`/health`의 `restRequests`, `restSuccess`, `restFailures`, `restRateLimited`, `restRetries`, `restQueueDepth`, `regularCacheSize`, `afterCacheSize`와 `recentErrors`만으로 안전하게 릴레이 상태를 확인할 수 있습니다. `KIS_RELAY_DEBUG_FIELDS=1`은 응답의 필드명과 지정 숫자 필드만 로그에 남기며, App Key·Secret·토큰·approval key는 어떤 경우에도 출력하지 않습니다.
 
 ## 로컬 개발과 검증
 

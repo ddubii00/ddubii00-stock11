@@ -45,6 +45,14 @@ function reportRestError({ market, code, session, status, body, timeout }) {
   const key = `${market}:${code}:${session}:${status ?? 'network'}:${body?.msg_cd ?? ''}`;
   if (diagnostics.lastError.get(key) !== message) { diagnostics.lastError.set(key, message); console.warn(`KIS REST failure ${message}`); }
 }
+function reportRestShape({ market, code, session, body }) {
+  if (process.env.KIS_RELAY_DEBUG_FIELDS !== '1') return;
+  const output = body?.output;
+  // Schema-only diagnostics: credentials and opaque response bodies never log.
+  console.info('KIS REST schema', JSON.stringify({ market, code, session, rt_cd: body?.rt_cd, msg_cd: body?.msg_cd, msg1: body?.msg1,
+    outputFields: output && typeof output === 'object' ? Object.keys(output).sort() : [],
+    values: { stck_prpr: output?.stck_prpr, stck_prdy_clpr: output?.stck_prdy_clpr, prdy_vrss: output?.prdy_vrss, prdy_ctrt: output?.prdy_ctrt, acml_vol: output?.acml_vol, stck_bsop_date: output?.stck_bsop_date, stck_cntg_hour: output?.stck_cntg_hour } }));
+}
 function drainRestQueue() {
   clearTimeout(restTimer);
   if (!restQueue.length || restActive >= restMaxConcurrency) return;
@@ -85,7 +93,7 @@ async function kisGet(path, trId, params, market, code, session) {
       } catch (error) {
         lastError = error; reportRestError({ market, code, session, timeout: error?.name === 'TimeoutError' });
       }
-      if (response?.ok && body?.rt_cd === '0') { diagnostics.restSuccess++; return body; }
+      if (response?.ok && body?.rt_cd === '0') { diagnostics.restSuccess++; reportRestShape({ market, code, session, body }); return body; }
       const retry = !response || response.status === 429 || response.status >= 500 || ['EGW00123', 'EGW00201'].includes(body?.msg_cd);
       reportRestError({ market, code, session, status: response?.status, body, timeout: !response });
       if (!retry || attempt === 2) throw new Error(`KIS REST ${body?.msg_cd ?? response?.status ?? 'network'}`);
@@ -98,7 +106,7 @@ async function kisGet(path, trId, params, market, code, session) {
 async function historicalRegularClose(market, code) {
   const key = quoteKey(market, code), { date } = seoulClock();
   const cached = regularCloseCache.get(key);
-  if (cached?.value?.date === date) return { ...cached.value, priceSource: 'kis-cache' };
+  if (cached?.value?.date === date && cached.value.priceSession === 'regular' && cached.value.marketStatus === 'CLOSE') return { ...cached.value, priceSource: 'kis-cache' };
   const body = await kisGet('/uapi/domestic-stock/v1/quotations/inquire-daily-price', 'FHKST01010400', {
     FID_COND_MRKT_DIV_CODE: 'J', FID_INPUT_ISCD: code, FID_PERIOD_DIV_CODE: 'D', FID_ORG_ADJ_PRC: '1',
   }, market, code, 'regular');
@@ -111,11 +119,14 @@ async function historicalRegularClose(market, code) {
 }
 async function domesticRestQuote(market, code, requestedAfter) {
   const session = sessionFor(requestedAfter);
-  const key = quoteKey(market, code);
+  const key = quoteKey(market, code), { date, minute } = seoulClock();
   const cache = session === 'after' ? afterSessionCache : regularCloseCache;
-  // KRX after 15:30 is a close, never a current-price REST interpretation.
-  if (session === 'regular' && seoulClock().minute > 930) return historicalRegularClose(market, code);
   const hit = cache.get(key);
+  // A final H0STCNT0 tick is more authoritative than a later REST snapshot.
+  if (session === 'regular' && hit?.value?.priceSource === 'kis-live' && hit.value.date === date) return { ...hit.value, priceSource: 'kis-cache' };
+  if (session === 'after' && minute >= 1200 && hit?.value?.priceSource === 'kis-live' && hit.value.date === date) return { ...hit.value, priceSource: 'kis-cache' };
+  // KRX after 15:30 is a close, never a current-price REST interpretation.
+  if (session === 'regular' && minute > 930) return historicalRegularClose(market, code);
   if (hit && hit.expires > Date.now()) return { ...hit.value, priceSource: 'kis-cache' };
   const pendingKey = `${session}:${key}`;
   if (quotePending.has(pendingKey)) return quotePending.get(pendingKey);
@@ -199,7 +210,7 @@ async function connect() {
           const key = quoteKey(client.market, item.code);
           // The last H0STCNT0 print is the immutable regular close for that
           // business date. H0UNCNT0 has a wholly separate after-session map.
-          if (tick.session === 'after' || tick.minute <= 930 || !cache.has(key)) cache.set(key, { expires: tick.session === 'after' ? Date.now() + QUOTE_TTL : undefined, value: { ...tick, chartCode: item.code, marketStatus: tick.session === 'after' ? 'AFTER' : 'OPEN', priceSource: 'kis-live', priceSession: tick.session } });
+          if (tick.session === 'after' || tick.minute <= 930 || !cache.has(key)) cache.set(key, { expires: tick.session === 'after' ? Date.now() + QUOTE_TTL : undefined, value: { ...tick, chartCode: item.code, marketStatus: tick.session === 'after' ? 'AFTER' : tick.minute >= 930 ? 'CLOSE' : 'OPEN', priceSource: 'kis-live', priceSession: tick.session } });
           event(client, 'quote', { ...tick, code: item.code, market: client.market });
         }
       }
@@ -236,14 +247,14 @@ const server = createServer(async (request, response) => {
   const url = new URL(request.url || '/', 'http://127.0.0.1');
   if (url.pathname === '/health') {
     response.writeHead(200, { 'content-type': 'application/json' });
-    response.end(JSON.stringify({ state, configured: Boolean(appKey && appSecret), wsLimit: limit, wsAccepted: accepted.size, wsRequested: sent.size, restQueueDepth: restQueue.length, restRequests: diagnostics.restRequests, restSuccess: diagnostics.restSuccess, restFailures: diagnostics.restFailures, restRateLimited: diagnostics.restRateLimited, regularCacheSize: regularCloseCache.size, afterCacheSize: afterSessionCache.size })); return;
+    response.end(JSON.stringify({ state, configured: Boolean(appKey && appSecret), wsLimit: limit, wsAccepted: accepted.size, wsRequested: sent.size, restQueueDepth: restQueue.length, restRequests: diagnostics.restRequests, restSuccess: diagnostics.restSuccess, restFailures: diagnostics.restFailures, restRateLimited: diagnostics.restRateLimited, restRetries: diagnostics.restRetries, regularCacheSize: regularCloseCache.size, afterCacheSize: afterSessionCache.size, recentErrors: [...diagnostics.lastError.values()].slice(-12).map((entry) => JSON.parse(entry)) })); return;
   }
   const market = url.searchParams.get('market');
   const codes = [...new Set((url.searchParams.get('codes') || '').split(',').filter(Boolean))];
   const after = url.searchParams.get('after') === '1';
   if (request.method === 'GET' && url.pathname === '/quotes' && ['KOSPI', 'KOSDAQ', 'NASDAQ', 'NYSE', 'AMEX'].includes(market) && codes.length && codes.length <= 40 && codes.every((code) => /^[A-Za-z0-9.^-]{1,24}$/.test(code))) {
     const session = domestic(market) ? sessionFor(after) : 'regular';
-    const quotes = {};
+    const quotes = {}, errors = {};
     // The relay serializes KIS REST into small bounded groups.  Foreign
     // symbols return only their real WebSocket cache; the app then uses its
     // documented Naver fallback rather than inventing an overseas REST call.
@@ -257,11 +268,11 @@ const server = createServer(async (request, response) => {
             const hit = regularCloseCache.get(key);
             if (hit) quotes[code] = { ...hit.value, priceSource: 'kis-cache' };
           }
-        } catch { /* The app marks this row as Naver fallback. */ }
+        } catch (error) { errors[code] = error instanceof Error ? error.message : 'KIS REST unavailable'; }
       }
     }));
     response.writeHead(200, { 'content-type': 'application/json', 'cache-control': 'no-store' });
-    response.end(JSON.stringify({ quotes, session, source: 'kis-relay' })); return;
+    response.end(JSON.stringify({ quotes, errors, session, source: 'kis-relay' })); return;
   }
   if (request.method !== 'GET' || url.pathname !== '/stream' || !['KOSPI', 'KOSDAQ', 'NASDAQ', 'NYSE', 'AMEX'].includes(market) || !codes.length || codes.length > 200 || codes.some((code) => !/^[A-Za-z0-9.^-]{1,24}$/.test(code))) {
     response.writeHead(400); response.end('Invalid market or symbols'); return;

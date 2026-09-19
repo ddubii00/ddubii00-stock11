@@ -96,10 +96,13 @@ export function Board({ market, graph, payload, largeText, textScale = largeText
   const [liveStatus, setLiveStatus] = useState<LiveStatus>({ state: 'connecting', subscribed: 0, requested: 0 });
   const quotes: Quote[] = (payload?.stocks ?? []).map((quote) => {
     const tick = liveTicks[quote.chartCode];
-    const liveSession = afterMarket ? 'after' : 'regular';
     const canApplyTick = (quote.marketStatus ?? payload?.marketStatus) === 'OPEN' || (afterMarket && (quote.marketStatus ?? payload?.marketStatus) === 'AFTER');
     const quoteTime = Date.parse(quote.asOf);
-    return tick && provider === 'kis' && canApplyTick && (tick.priceSession ?? 'regular') === liveSession && (!Number.isFinite(quoteTime) || Date.parse(tick.asOf) >= quoteTime)
+    // KRX2 intentionally uses regular KRX ticks until the after session starts,
+    // then only its separate integrated tick stream.  Match the quote's
+    // explicit session rather than treating every KRX2 value as after-market.
+    const replacesFallback = !quote.priceSource || quote.priceSource === 'naver-fallback';
+    return tick && provider === 'kis' && canApplyTick && (tick.priceSession ?? 'regular') === (quote.priceSession ?? 'regular') && (replacesFallback || !Number.isFinite(quoteTime) || Date.parse(tick.asOf) >= quoteTime)
       ? { ...quote, price: tick.price, change: tick.change, changePrice: tick.changePrice, previousClose: tick.previousClose, asOf: tick.asOf, ...(tick.volume ? { volume: tick.volume } : {}), priceSource: 'kis-live' } : quote;
   });
   const layout = fitBoard(size.width, size.height, graph, largeText, quotes.length || 200, textScale);
@@ -321,6 +324,10 @@ export function StockDashboard() {
   const [provider, setProvider] = useState<'naver' | 'kis'>('naver');
   const [indexSeries, setIndexSeries] = useState<Record<string, MinuteSeries>>({});
   const [localWatchlists, setLocalWatchlists] = useState<[StockSelection[], StockSelection[], StockSelection[], StockSelection[]]>([[], [], [], []]);
+  const dataRef = useRef(data);
+  const tabRef = useRef(tab);
+  useEffect(() => { dataRef.current = data; }, [data]);
+  useEffect(() => { tabRef.current = tab; }, [tab]);
   const watchlists = sync.enabled ? profileWatchlists(sync.profile) : localWatchlists;
   const setWatchlist = (items: StockSelection[], list: WatchlistId = 0) => {
     const current = watchlists[list];
@@ -346,7 +353,7 @@ export function StockDashboard() {
   const inFlight = useRef(false);
   const refreshQueued = useRef(false);
   const krxModeRef = useRef(krxMode);
-  krxModeRef.current = krxMode;
+  useEffect(() => { krxModeRef.current = krxMode; }, [krxMode]);
 
   useEffect(() => {
     try {
@@ -418,7 +425,10 @@ export function StockDashboard() {
       await Promise.all([...markets.map(async (market) => {
         try {
           const after = requestedKrxMode === 'KRX2' && (market === 'KOSPI' || market === 'KOSDAQ') ? '&after=1' : '';
-          const response = await fetch(`${apiPath('/api/market')}?market=${market}${market === 'KOSPI' ? '&indices=1' : ''}${after}`, { cache: 'no-store', signal: AbortSignal.timeout(15000) });
+          const active = views.find((view) => view.value === tabRef.current)?.market === market;
+          const visible = active ? (dataRef.current[market]?.stocks ?? []).slice(0, 32).map((quote) => quote.chartCode).join(',') : '';
+          const priority = active ? `&priority=active${visible ? `&visible=${encodeURIComponent(visible)}` : ''}` : '';
+          const response = await fetch(`${apiPath('/api/market')}?market=${market}${market === 'KOSPI' ? '&indices=1' : ''}${after}${priority}`, { cache: 'no-store', signal: AbortSignal.timeout(15000) });
           if (!response.ok) throw new Error('시세 연결 재시도 중 · 마지막 수신값 표시');
           const result = await response.json() as MarketPayload;
           if (!result.stocks?.length) throw new Error('시세 수신 대기');

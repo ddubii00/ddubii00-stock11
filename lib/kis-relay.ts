@@ -32,7 +32,11 @@ export function mergeKisQuotes(fallback: Quote[], kis: Record<string, RelayQuote
     if (!live || !Number.isFinite(live.price) || live.price <= 0) return { ...quote, priceSource: 'naver-fallback', priceSession: afterMarket ? 'after' : 'regular' };
     // A regular KRX request can only consume a regular relay quote.  This is
     // the hard boundary that prevents a 20:00 unified price replacing 15:30.
-    if ((afterMarket ? 'after' : 'regular') !== live.priceSession) return { ...quote, priceSource: 'naver-fallback', priceSession: afterMarket ? 'after' : 'regular' };
+    // KRX2 is regular during 09:00–15:30 and integrated only for the later
+    // session; the relay returns its actual session explicitly.  Never accept
+    // an after quote for the plain KRX view.
+    if (live.priceSession !== 'regular' && live.priceSession !== 'after') return { ...quote, priceSource: 'naver-fallback', priceSession: afterMarket ? 'after' : 'regular' };
+    if (!afterMarket && live.priceSession !== 'regular') return { ...quote, priceSource: 'naver-fallback', priceSession: 'regular' };
     return { ...quote, ...live, chartCode: quote.chartCode, priceSource: live.priceSource ?? 'kis-rest', priceSession: live.priceSession };
   });
 }

@@ -1,9 +1,19 @@
 import { readIndices, readStocks } from '@/lib/naver';
 import { kisEnabled, mergeKisQuotes, readKisQuotes } from '@/lib/kis-relay';
+import type { Quote } from '@/lib/market-types';
 
 export const dynamic = 'force-dynamic';
 export const runtime = 'nodejs';
 export const maxDuration = 30;
+
+const priorityLimit = Math.max(1, Math.min(40, Number(process.env.KIS_REST_PRIORITY_LIMIT) || 16));
+function priorityCodes(stocks: Quote[], visible: string | null, active: boolean) {
+  const known = new Set(stocks.map((quote) => quote.chartCode));
+  const requested = [...new Set((visible ?? '').split(',').filter((code) => /^[A-Za-z0-9.^-]{1,24}$/.test(code) && known.has(code)))];
+  // Only the active board gets a bounded initial ranked fill. Other boards
+  // remain Naver-backed until they become visible, avoiding 4×40 REST bursts.
+  return (requested.length ? requested : active ? stocks.map((quote) => quote.chartCode) : []).slice(0, priorityLimit);
+}
 
 export async function GET(request: Request) {
   const url = new URL(request.url);
@@ -16,10 +26,9 @@ export async function GET(request: Request) {
     const [stocks, indices] = await Promise.all([
       readStocks(market, afterMarket), url.searchParams.get('indices') === '1' ? readIndices() : Promise.resolve([]),
     ]);
-    // KIS has a deliberately bounded REST budget.  The board's first 40
-    // ranked rows are the priority set; all remaining rows retain an explicit
-    // Naver fallback instead of faking KIS authority.
-    const codes = stocks.stocks.slice(0, 40).map((quote) => quote.chartCode);
+    // KIS REST is shared by every market, watchlist and browser. Prefer the
+    // board actually on screen; do not issue four simultaneous 40-code bursts.
+    const codes = priorityCodes(stocks.stocks, url.searchParams.get('visible'), url.searchParams.get('priority') === 'active');
     const kis = await readKisQuotes(market, codes, afterMarket);
     const merged = mergeKisQuotes(stocks.stocks, kis, afterMarket);
     const usedKis = Object.values(kis).some((quote) => quote.priceSession === (afterMarket ? 'after' : 'regular'));
