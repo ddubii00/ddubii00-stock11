@@ -165,7 +165,7 @@ a { color: inherit; text-decoration: none; }
   .index-label { font-size: 10px; }
   .index-item strong { font-size: 14px; }
   .index-change { grid-column: 1; justify-self: start; font-size: 11px; }
-  .market-tab-list { width: 100%; height: 53px !important; display: grid; grid-template-columns: repeat(7, minmax(0, 1fr)); grid-template-rows: repeat(2, 24px); }
+  .market-tab-list { width: 100%; height: 53px !important; display: grid; grid-template-columns: repeat(8, minmax(0, 1fr)); grid-template-rows: repeat(2, 24px); }
   .market-tab-list button { min-width: 0; height: 24px; padding-inline: 1px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: 9px; }
   .quote-table { --rank-width: 23px; }
   .quote-table .price-col { width: 96px; }
@@ -210,7 +210,9 @@ a { color: inherit; text-decoration: none; }
 .kospi-chart-board .graph-price { gap: 0; }
 .kospi-chart-board .graph-price .change-rate { font-size: 20px; font-weight: 750; line-height: 1.05; }
 .compact .kospi-chart-board .graph-price .change-rate { font-size: 19px; }
-.graph-card .chart-area { width: 100%; height: min(34px, 100%); }
+/* Let the minute trend use the available card height. This makes the larger
+   T stages enlarge the vertical price movement as well as the text. */
+.graph-card .chart-area { width: 100%; height: 100%; align-self: stretch; }
 .price-line { stroke-width: 1.6; }
 .spark-baseline { stroke-width: 1.2; stroke-dasharray: 3 3; stroke: #6f7d73; }
 .chart-error { bottom: 0; right: 6px; font-size: 10px; }
@@ -251,6 +253,18 @@ a { color: inherit; text-decoration: none; }
 .watch-quote-table { min-width: 430px; }
 .volume-head { text-align: left !important; padding-left: 2px !important; padding-right: 2px !important; }
 .volume-cell { padding-left: 2px !important; padding-right: 2px !important; color: #52685a; font-size: 13px; font-variant-numeric: tabular-nums; }
+
+/* Keep volume figures readable on notebook-sized screens. The table's
+   default right alignment leaves a large empty gutter before the number,
+   so left-align the value where the viewport is likely to clip the cell. */
+@media (max-width: 1600px) {
+  .watch-quote-table .volume-cell {
+    text-align: left !important;
+    padding-left: 0 !important;
+    letter-spacing: -0.3px;
+  }
+  .watch-quote-table .volume-head { padding-left: 0 !important; }
+}
 .change-arrow { display: inline-block; width: 14px; text-align: center; }
 
 .terminal-header { flex-basis: 68px; display: grid; grid-template-columns: 74px minmax(0, 1fr) auto; grid-template-rows: 29px 35px; grid-template-areas: 'brand tabs actions' 'sessions indices indices'; gap: 0 7px; padding-block: 2px; }
@@ -309,7 +323,7 @@ a { color: inherit; text-decoration: none; }
 }
 @media (max-width: 600px) {
   .terminal-header { flex-basis: 143px; grid-template-columns: 75px 1fr auto; grid-template-rows: 27px 51px 61px; grid-template-areas: 'sessions actions actions' 'tabs tabs tabs' 'indices indices indices'; }
-  .market-tab-list { display: grid; grid-template-columns: repeat(7, minmax(0, 1fr)); grid-template-rows: repeat(2, 24px); height: 53px !important; width: 100%; }
+  .market-tab-list { display: grid; grid-template-columns: repeat(8, minmax(0, 1fr)); grid-template-rows: repeat(2, 24px); height: 53px !important; width: 100%; }
   .market-tab-list button { min-width: 0; padding-inline: 1px; font-size: 9px; height: 24px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
   .index-item { height: 61px; grid-template-columns: minmax(0, 1fr); grid-template-rows: 13px 17px 14px 17px; gap: 0; padding-inline: 3px; }
   .index-item strong { grid-column: 1; grid-row: 2; font-size: 14px; }

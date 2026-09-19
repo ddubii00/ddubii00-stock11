@@ -1,7 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { randomUUID } from 'node:crypto';
-import { applyOperation, emptyProfile, parseOperation, restoreProfile } from '../lib/profile.ts';
+import { applyOperation, emptyProfile, parseOperation, profileWatchlists, restoreProfile } from '../lib/profile.ts';
 import { readProfile, updateProfile, login, authenticated, logout } from '../lib/profile-service.ts';
 import { checkOrigin, jsonBody, sessionCookie, tokenFrom } from '../lib/profile-http.ts';
 import { redisKey, closeRedis, getRedis } from '../lib/redis.ts';
@@ -54,6 +54,19 @@ void test('one-time migration never overwrites an existing server record and rej
   assert.throws(() => parseOperation({ type: 'settings', largeText: true, textScale: 5 }));
   assert.deepEqual(restoreProfile(profile), profile);
   assert.deepEqual(applyOperation(profile, { type: 'highlight', key: 'NASDAQ:QQQ.O', color: null }).highlights, []);
+});
+
+void test('three saved watchlists migrate to four without losing any existing list', () => {
+  const oldProfile = {
+    ...emptyProfile(),
+    watchlist: [samsung],
+    watchlists: [[samsung], [qqq], [samsung]],
+  };
+  const restored = restoreProfile(oldProfile);
+  assert.ok(restored);
+  assert.deepEqual(profileWatchlists(restored).map((list) => list.map((item) => item.code)), [['005930'], ['QQQ'], ['005930'], []]);
+  const updated = applyOperation(restored, parseOperation({ type: 'add', list: 3, item: qqq }));
+  assert.deepEqual(profileWatchlists(updated)[3].map((item) => item.code), ['QQQ']);
 });
 
 void test('password login is rate-limited, sessions expire/rotate/revoke and no token stores plaintext passwords', async () => {

@@ -28,7 +28,7 @@ const views = markets.flatMap((market) => [
   { value: market.toLowerCase(), market, graph: false, label: marketLabel(market) },
   { value: `${market.toLowerCase()}-chart`, market, graph: true, label: `${marketLabel(market)} 차트` },
 ]);
-const watchViews = ([0, 1, 2] as WatchlistId[]).flatMap((list) => [
+const watchViews = ([0, 1, 2, 3] as WatchlistId[]).flatMap((list) => [
   { value: list === 0 ? 'watchlist' : `watchlist${list + 1}`, list, graph: false, label: list === 0 ? '관심종목' : `관심종목${list + 1}` },
   { value: list === 0 ? 'watchlist-chart' : `watchlist${list + 1}-chart`, list, graph: true, label: list === 0 ? '관심종목 차트' : `관심종목${list + 1} 차트` },
 ]);
@@ -312,21 +312,21 @@ export function StockDashboard() {
   const [busy, setBusy] = useState(false);
   const [provider, setProvider] = useState<'naver' | 'kis'>('naver');
   const [indexSeries, setIndexSeries] = useState<Record<string, MinuteSeries>>({});
-  const [localWatchlists, setLocalWatchlists] = useState<[StockSelection[], StockSelection[], StockSelection[]]>([[], [], []]);
+  const [localWatchlists, setLocalWatchlists] = useState<[StockSelection[], StockSelection[], StockSelection[], StockSelection[]]>([[], [], [], []]);
   const watchlists = sync.enabled ? profileWatchlists(sync.profile) : localWatchlists;
   const setWatchlist = (items: StockSelection[], list: WatchlistId = 0) => {
     const current = watchlists[list];
-    if (!sync.enabled) { setLocalWatchlists((lists) => lists.map((old, index) => index === list ? items : old) as [StockSelection[], StockSelection[], StockSelection[]]); return; }
+    if (!sync.enabled) { setLocalWatchlists((lists) => lists.map((old, index) => index === list ? items : old) as [StockSelection[], StockSelection[], StockSelection[], StockSelection[]]); return; }
     for (const item of items) if (!current.some((old) => symbolKey(old) === symbolKey(item))) sync.send({ type: 'add', item, list });
   };
   const removeWatch = (quote: Quote, list: WatchlistId = 0) => {
     const key = symbolKey({ market: quote.market ?? 'KOSPI', chartCode: quote.chartCode });
     if (sync.enabled) sync.send({ type: 'remove', key, list });
-    else setLocalWatchlists((lists) => lists.map((items, index) => index === list ? items.filter((item) => symbolKey(item) !== key) : items) as [StockSelection[], StockSelection[], StockSelection[]]);
+    else setLocalWatchlists((lists) => lists.map((items, index) => index === list ? items.filter((item) => symbolKey(item) !== key) : items) as [StockSelection[], StockSelection[], StockSelection[], StockSelection[]]);
   };
   const reorderWatch = (source: string, target: string, list: WatchlistId = 0) => {
     const current = watchlists[list];
-    if (!sync.enabled) { setLocalWatchlists((lists) => lists.map((items, index) => index === list ? reorderWatchlist(items, source, target) : items) as [StockSelection[], StockSelection[], StockSelection[]]); return; }
+    if (!sync.enabled) { setLocalWatchlists((lists) => lists.map((items, index) => index === list ? reorderWatchlist(items, source, target) : items) as [StockSelection[], StockSelection[], StockSelection[], StockSelection[]]); return; }
     const next = reorderWatchlist(current, source, target);
     const following = next[next.findIndex((item) => symbolKey(item) === source) + 1];
     sync.send({ type: 'move', key: source, before: following ? symbolKey(following) : null, list });
@@ -350,20 +350,20 @@ export function StockDashboard() {
     } catch { /* Optional UI preference. */ }
     // eslint-disable-next-line react/react-compiler -- Read browser-only persistence after hydration, never during the server render.
     try {
-      const keys = [WATCHLIST_KEY, 'stock11.watchlist2.v1', 'stock11.watchlist3.v1'];
-      setLocalWatchlists(keys.map((key) => restoreWatchlist(localStorage.getItem(key))) as [StockSelection[], StockSelection[], StockSelection[]]);
+      const keys = [WATCHLIST_KEY, 'stock11.watchlist2.v1', 'stock11.watchlist3.v1', 'stock11.watchlist4.v1'];
+      setLocalWatchlists(keys.map((key) => restoreWatchlist(localStorage.getItem(key))) as [StockSelection[], StockSelection[], StockSelection[], StockSelection[]]);
     }
     catch { setStorageError('브라우저 저장소 사용 불가 · 이번 화면에서만 유지됩니다.'); }
     setWatchLoaded(true);
-    const keys = new Set([WATCHLIST_KEY, 'stock11.watchlist2.v1', 'stock11.watchlist3.v1']);
-    const sync = (event: StorageEvent) => { if (event.key && keys.has(event.key)) setLocalWatchlists((lists) => lists.map((items, index) => index === [...keys].indexOf(event.key!) ? restoreWatchlist(event.newValue) : items) as [StockSelection[], StockSelection[], StockSelection[]]); };
+    const keys = new Set([WATCHLIST_KEY, 'stock11.watchlist2.v1', 'stock11.watchlist3.v1', 'stock11.watchlist4.v1']);
+    const sync = (event: StorageEvent) => { if (event.key && keys.has(event.key)) setLocalWatchlists((lists) => lists.map((items, index) => index === [...keys].indexOf(event.key!) ? restoreWatchlist(event.newValue) : items) as [StockSelection[], StockSelection[], StockSelection[], StockSelection[]]); };
     window.addEventListener('storage', sync);
     return () => window.removeEventListener('storage', sync);
   }, []);
   useEffect(() => {
     if (!watchLoaded) return;
     try {
-      [WATCHLIST_KEY, 'stock11.watchlist2.v1', 'stock11.watchlist3.v1'].forEach((key, index) => localStorage.setItem(key, JSON.stringify(localWatchlists[index])));
+      [WATCHLIST_KEY, 'stock11.watchlist2.v1', 'stock11.watchlist3.v1', 'stock11.watchlist4.v1'].forEach((key, index) => localStorage.setItem(key, JSON.stringify(localWatchlists[index])));
     }
     // eslint-disable-next-line react/react-compiler -- Surface a real external storage failure to the user.
     catch { setStorageError('브라우저 저장 실패 · 이번 화면에서만 유지됩니다.'); }
