@@ -262,9 +262,9 @@ a { color: inherit; text-decoration: none; }
 .volume-head { text-align: right !important; padding-left: 2px !important; padding-right: 2px !important; }
 .volume-cell { padding-left: 2px !important; padding-right: 2px !important; text-align: right !important; color: #52685a; font-size: 13px; font-variant-numeric: tabular-nums; letter-spacing: -0.3px; }
 /* Notebook columns can end at the viewport edge. Shift only the visible
-   watchlist volume label/value left by about 1cm, preserving right alignment. */
+   watchlist volume label/value left by about 0.5cm, preserving right alignment. */
 .watch-quote-table .volume-head,
-.watch-quote-table .volume-cell { transform: translateX(-36px); }
+.watch-quote-table .volume-cell { transform: translateX(-18px); }
 .change-arrow { display: inline-block; width: 14px; text-align: center; }
 
 .terminal-header { flex-basis: 68px; display: grid; grid-template-columns: 74px minmax(0, 1fr) auto; grid-template-rows: 29px 35px; grid-template-areas: 'brand tabs actions' 'sessions indices indices'; gap: 0 7px; padding-block: 2px; }
