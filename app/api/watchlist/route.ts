@@ -1,5 +1,7 @@
 import { readQuote } from '@/lib/naver';
+import { mergeKisQuotes, readKisQuotes } from '@/lib/kis-relay';
 import { parseSymbols, symbolKey } from '@/lib/watchlist';
+import type { Market } from '@/lib/market-types';
 export const dynamic = 'force-dynamic';
 export const runtime = 'nodejs';
 export const maxDuration = 60;
@@ -18,6 +20,15 @@ export async function GET(request: Request) {
       try { quotes[key] = await readQuote(item.market, item.chartCode, afterMarket); }
       catch { errors[key] = '시세 수신 대기'; }
     }
+  }));
+  // Query each exchange separately so a domestic KRX2 request can use KIS UN
+  // without ever altering the matching regular-session quote.
+  const grouped = new Map<Market, typeof items>();
+  for (const item of items) grouped.set(item.market, [...(grouped.get(item.market) ?? []), item]);
+  await Promise.all([...grouped].map(async ([market, group]) => {
+    const known = group.map((item) => quotes[symbolKey(item)]).filter(Boolean);
+    const kis = await readKisQuotes(market, known.map((quote) => quote.chartCode), afterMarket);
+    for (const quote of mergeKisQuotes(known, kis, afterMarket)) quotes[symbolKey({ market: quote.market ?? market, chartCode: quote.chartCode })] = quote;
   }));
   return Response.json({ quotes, errors }, { headers: { 'Cache-Control': 'no-store' } });
 }

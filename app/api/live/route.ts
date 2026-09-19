@@ -7,12 +7,14 @@ export async function GET(request: Request) {
   const params = new URL(request.url).searchParams;
   const market = params.get('market');
   const codes = (params.get('codes') ?? '').split(',');
+  const after = params.get('after') === '1';
   if (!['KOSPI', 'KOSDAQ', 'NASDAQ', 'NYSE', 'AMEX'].includes(market ?? '') || !codes.length || codes.length > 200 || codes.some((code) => !/^[A-Za-z0-9.^-]{1,24}$/.test(code))) {
     return Response.json({ error: '종목코드가 올바르지 않습니다.' }, { status: 400 });
   }
   const url = new URL('/stream', process.env.KIS_RELAY_URL || 'http://127.0.0.1:8091');
   url.searchParams.set('market', market!);
   url.searchParams.set('codes', codes.join(','));
+  if (after && (market === 'KOSPI' || market === 'KOSDAQ')) url.searchParams.set('after', '1');
   const controller = new AbortController();
   const abort = () => controller.abort();
   request.signal.addEventListener('abort', abort, { once: true });

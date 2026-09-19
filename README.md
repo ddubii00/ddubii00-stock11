@@ -107,23 +107,26 @@ docker compose --env-file .env.oracle up -d
 
 충돌이 있으면 내용을 확인하세요. 기존 서버 파일을 강제 초기화하지 않습니다. `.env.oracle`은 Git에 포함되지 않아 유지됩니다.
 
-## KIS 실시간 방식과 제한
+## KIS 실시간 방식과 세션 분리
 
-KIS의 국내 `H0STCNT0`, 미국 `HDFSCNT0` 시세를 한 개의 공유 WebSocket으로 받고 `/api/live` SSE를 통해 화면에 전달합니다. NASDAQ·NYSE·AMEX는 거래소별로 구독하며 새로운 체결은 현재가·등락률·해당 분의 차트에 반영합니다. 정규장 시간 외 체결은 제외하고 장종료 후에는 네이버 정규장 최종가격을 유지합니다.
+Oracle에서는 KIS relay만 App Key/Secret과 access token을 보관합니다. 앱 컨테이너는 사설 Docker 네트워크의 relay `/quotes`·`/stream`만 호출하며, 키·시크릿·bearer token을 받거나 로그에 남기지 않습니다. relay는 access token을 재사용하고 국내 현재가 REST를 종목별로 25초 캐시·동시 4개로 제한합니다.
 
-- 기본 동시 구독 상한은 **40종목**입니다. 여러 접속자도 이 한도를 공유합니다. 표시 종목을 거래소별로 구독하고, 나머지 종목과 지수는 30초 네이버 갱신을 유지합니다. **200종목 모두 KIS 실시간이라고 표시하지 않습니다.** 화면 하단에 승인된 구독 수를 표시합니다.
-- 분봉 이력은 네이버에서 가져오고 신규 KIS 체결로 이어 그립니다. 가상 가격이나 임의 분봉은 만들지 않습니다.
+- **KRX**는 KIS 현재가 REST의 `J`(KRX)만 사용하며, 정규장 15:30 가격을 `regular` 캐시에 따로 보관합니다. 예를 들어 15:30의 1,857,000원은 장후 가격으로 바뀌지 않습니다.
+- **KRX2**는 KIS 현재가 REST의 `UN`(KRX/NXT 통합)만 사용하며 `after` 캐시에 보관합니다. 16:00–20:00의 실제 통합 체결값(예: 1,849,000원)을 KRX 정규장 캐시와 섞지 않습니다. KIS가 실패하거나 지원하지 않는 종목만 네이버 장후 필드를 명시적 fallback으로 사용합니다.
+- 국내 정규장 `H0STCNT0`, 통합 체결 `H0UNCNT0`, 미국 `HDFSCNT0`은 한 개의 공유 WebSocket으로 받고 `/api/live` SSE를 통해 화면에 전달합니다. relay의 기본 동시 구독 상한은 40이며 여러 브라우저가 하나의 upstream을 공유합니다.
+- 과거 분봉 이력은 현재 제공처가 보장하는 네이버 실제 분봉을 사용하되, KIS 실시간 수신분은 같은 세션에만 이어 그립니다. KIS 권한·실계정으로 검증하지 못한 REST/실시간 응답을 성공으로 표시하지 않습니다.
+
+- 기본 동시 구독 상한은 **40종목**입니다. 여러 접속자도 이 한도를 공유합니다. 표시 종목을 거래소별로 구독하고, 나머지 종목과 지수는 30초 fallback 갱신을 유지합니다. **200종목 모두 KIS 실시간이라고 표시하지 않습니다.** 화면 하단에 승인된 구독 수를 표시합니다.
+- KIS가 응답한 행은 `KIS 우선`, 나머지는 `네이버 보완`으로 응답 source를 구분합니다. 가상 가격이나 임의 분봉은 만들지 않습니다.
 - KIS 접속 실패 시 연결 대기를 표시하고 네이버 갱신을 유지합니다. NASDAQ은 KIS 해외시세 이용 권한과 지연 정책의 영향을 받습니다. 코드 미지원 종목도 기본 갱신을 유지합니다.
 - 실제 KIS 인증과 실체결 검증에는 사용자 키가 필요합니다. 서버 설정 파일을 준비한 것과 실제 서버 배포/실체결 확인은 별개입니다.
 - 공개 운영 전 시세 제공처의 이용·재배포 조건을 확인하고, 필요하면 Nginx 등에서 접근을 제한하세요.
 
 공식 참고: [KIS 국내 예제](https://github.com/koreainvestment/open-trading-api/blob/main/legacy/Sample01/kis_domstk_ws.py), [국내/해외 WebSocket 예제](https://github.com/koreainvestment/open-trading-api/blob/main/legacy/websocket/python/ws_domestic%2Boverseas_stock.py).
 
-### NXT 지원 가능 여부
+### KIS 공식 근거
 
-헤더의 **KRX**는 정규장 15:30 기준가를, **KRX2**는 네이버가 제공하는 장후 체결 필드(`overMarketPriceInfo`)가 유효한 국내 종목에 한해 장후 현재가·등락률·거래량을 표시합니다. 장후 값이 없으면 정규장 값을 그대로 유지합니다. 이 선택은 종목 현재가 표시용이며, 분봉 이력과 KIS SSE는 정규장 기준을 유지합니다.
-
-KIS 공식 API는 NXT 체결 `H0NXCNT0`와 통합 체결 `H0UNCNT0`을 지원하므로, 향후 장후 분봉까지 실시간으로 연결할 수 있습니다. 이를 활성화하려면 거래소 선택, 해당 거래시간·기준가·분봉 이력과 실제 키 테스트를 함께 연결해야 합니다. 공식 근거: [KIS 국내 실시간 함수의 ccnl_nxt / ccnl_total](https://github.com/koreainvestment/open-trading-api/blob/main/examples_user/domestic_stock/domestic_stock_functions_ws.py).
+KIS의 [국내 주식현재가 예제](https://github.com/koreainvestment/open-trading-api/blob/main/examples_llm/domestic_stock/inquire_price/inquire_price.py)는 `inquire-price`, `FHKST01010100` 및 `J`(KRX)·`NX`(NXT)·`UN`(통합) 구분을 명시합니다. 이 앱은 그 구분을 가격 캐시 키와 API 응답의 `priceSession`에도 그대로 보존합니다. 실제 운영 키로 KIS 응답 필드를 검증하기 전에는 NXT/통합 가격을 정규장 가격으로 대체하지 않습니다.
 
 ## 로컬 개발과 검증
 

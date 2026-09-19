@@ -1,4 +1,5 @@
 import { readIndices, readStocks } from '@/lib/naver';
+import { kisEnabled, mergeKisQuotes, readKisQuotes } from '@/lib/kis-relay';
 
 export const dynamic = 'force-dynamic';
 export const runtime = 'nodejs';
@@ -15,7 +16,14 @@ export async function GET(request: Request) {
     const [stocks, indices] = await Promise.all([
       readStocks(market, afterMarket), url.searchParams.get('indices') === '1' ? readIndices() : Promise.resolve([]),
     ]);
-    return Response.json({ ...stocks, indices }, { headers: { 'Cache-Control': 'no-store' } });
+    // KIS has a deliberately bounded REST budget.  The board's first 40
+    // ranked rows are the priority set; all remaining rows retain an explicit
+    // Naver fallback instead of faking KIS authority.
+    const codes = stocks.stocks.slice(0, 40).map((quote) => quote.chartCode);
+    const kis = await readKisQuotes(market, codes, afterMarket);
+    const merged = mergeKisQuotes(stocks.stocks, kis, afterMarket);
+    const usedKis = Object.values(kis).some((quote) => quote.priceSession === (afterMarket ? 'after' : 'regular'));
+    return Response.json({ ...stocks, stocks: merged, indices, source: usedKis && kisEnabled() ? `KIS 우선 · ${stocks.source} 보완` : stocks.source }, { headers: { 'Cache-Control': 'no-store' } });
   } catch (error) {
     return Response.json({ error: error instanceof Error ? error.message : '시세 조회 실패' }, { status: 502 });
   }

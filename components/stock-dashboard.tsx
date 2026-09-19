@@ -96,7 +96,9 @@ export function Board({ market, graph, payload, largeText, textScale = largeText
   const [liveStatus, setLiveStatus] = useState<LiveStatus>({ state: 'connecting', subscribed: 0, requested: 0 });
   const quotes = (payload?.stocks ?? []).map((quote) => {
     const tick = liveTicks[quote.chartCode];
-    return tick && provider === 'kis' && (quote.marketStatus ?? payload?.marketStatus) === 'OPEN' && Date.parse(tick.asOf) >= Date.parse(quote.asOf)
+    const liveSession = afterMarket ? 'after' : 'regular';
+    const canApplyTick = (quote.marketStatus ?? payload?.marketStatus) === 'OPEN' || (afterMarket && (quote.marketStatus ?? payload?.marketStatus) === 'AFTER');
+    return tick && provider === 'kis' && canApplyTick && (tick.priceSession ?? 'regular') === liveSession && Date.parse(tick.asOf) >= Date.parse(quote.asOf)
       ? { ...quote, price: tick.price, change: tick.change, changePrice: tick.changePrice, previousClose: tick.previousClose, asOf: tick.asOf } : quote;
   });
   const layout = fitBoard(size.width, size.height, graph, largeText, quotes.length || 200, textScale);
@@ -146,10 +148,13 @@ export function Board({ market, graph, payload, largeText, textScale = largeText
     },
   } : {};
   const codes = graph ? visible.map((quote) => symbolKey({ market: quote.market ?? market, chartCode: quote.chartCode })).join(',') : '';
-  const liveCodes = visible.filter((quote) => (quote.marketStatus ?? payload?.marketStatus) === 'OPEN').map((quote) => symbolKey({ market: quote.market ?? market, chartCode: quote.chartCode })).join(',');
+  const liveCodes = visible.filter((quote) => {
+    const status = quote.marketStatus ?? payload?.marketStatus;
+    return status === 'OPEN' || (afterMarket && status === 'AFTER');
+  }).map((quote) => symbolKey({ market: quote.market ?? market, chartCode: quote.chartCode })).join(',');
 
   useEffect(() => {
-    if (provider !== 'kis' || !autoRefresh || !liveCodes || !size.width || payload?.marketStatus !== 'OPEN') return;
+    if (provider !== 'kis' || !autoRefresh || !liveCodes || !size.width || (payload?.marketStatus !== 'OPEN' && !(afterMarket && payload?.marketStatus === 'AFTER'))) return;
     let streams: EventSource[] = [];
     const statuses = new Map<string, LiveStatus>();
     const start = () => {
@@ -158,7 +163,7 @@ export function Board({ market, graph, payload, largeText, textScale = largeText
       const groups = new Map<string, string[]>();
       for (const key of liveCodes.split(',')) { const [exchange, code] = key.split(':'); groups.set(exchange, [...(groups.get(exchange) ?? []), code]); }
       for (const [exchange, symbols] of groups) {
-      const stream = new EventSource(`${apiPath('/api/live')}?market=${exchange}&codes=${encodeURIComponent(symbols.join(','))}`);
+      const stream = new EventSource(`${apiPath('/api/live')}?market=${exchange}&codes=${encodeURIComponent(symbols.join(','))}${afterMarket && (exchange === 'KOSPI' || exchange === 'KOSDAQ') ? '&after=1' : ''}`);
       streams.push(stream);
       stream.addEventListener('status', (event) => {
         try {
@@ -180,7 +185,7 @@ export function Board({ market, graph, payload, largeText, textScale = largeText
     start();
     document.addEventListener('visibilitychange', start);
     return () => { streams.forEach((stream) => stream.close()); document.removeEventListener('visibilitychange', start); };
-  }, [provider, autoRefresh, liveCodes, market, size.width, payload?.marketStatus]);
+  }, [provider, autoRefresh, liveCodes, market, size.width, payload?.marketStatus, afterMarket]);
 
   useEffect(() => {
     if (!area.current) return;
@@ -238,7 +243,7 @@ export function Board({ market, graph, payload, largeText, textScale = largeText
               <div className="graph-card" data-highlighted={isHighlighted(key)} data-highlight-color={selected.get(key)}>
               <Button variant="ghost" className="chart-highlight-toggle" aria-label={`${quote.name} ${highlightLabel}`} title={highlightHint} aria-pressed={isHighlighted(key)} onClick={(event) => highlightClick(event, key)} onDoubleClick={() => highlightDoubleClick(key)} />
               <div className="graph-identity"><a href={stockUrl(quote, exchange)} target="_blank" rel="noopener noreferrer" aria-label={`${quote.name} 네이버 증권 새 탭에서 보기`}><strong title={quote.name}>{quote.name}</strong></a><span>{offset + index + 1} · {quote.code}{watch ? ' · 분봉' : ''}</span></div>
-              <Sparkline series={series[key]} tick={provider === 'kis' && quote.marketStatus === 'OPEN' && autoRefresh ? liveTicks[quote.chartCode] : undefined} name={quote.name} now={now} />
+              <Sparkline series={series[key]} tick={provider === 'kis' && autoRefresh && (afterMarket ? quote.marketStatus === 'AFTER' : quote.marketStatus === 'OPEN') ? liveTicks[quote.chartCode] : undefined} name={quote.name} now={now} />
               <div className="graph-price"><Price quote={quote} market={exchange} />{quote.pending ? <span className="price-flat">수신 대기</span> : <Change value={quote.change} />}</div>
               {chartErrors[key] && <span className="chart-error">{chartErrors[key]}</span>}
               </div>

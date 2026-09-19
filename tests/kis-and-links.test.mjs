@@ -16,6 +16,8 @@ test('KIS supports alphanumeric Korean symbols and US exchange subscriptions', (
   assert.equal(subscription('AMEX', 'AA.K').key, 'DAMSAA');
   assert.equal(subscription('KOSPI', '../../key'), null);
   assert.equal(subscription('NASDAQ', 'IBM.N'), null);
+  assert.equal(subscription('KOSPI', '000660', 'regular').trId, 'H0STCNT0');
+  assert.equal(subscription('KOSPI', '000660', 'after').trId, 'H0UNCNT0');
 });
 test('KIS domestic ticks preserve price, previous close, date and decline signs', () => {
   const [tick] = parseTrades(`0|H0STCNT0|001|${domestic('110000', '5').join('^')}`);
@@ -29,6 +31,13 @@ test('KIS domestic ticks preserve price, previous close, date and decline signs'
 test('KIS rejects after-hours, malformed, encrypted and account-notice messages', () => {
   for (const time of ['085959', '153001', '160000']) assert.equal(parseTrades(`0|H0STCNT0|001|${domestic(time).join('^')}`).length, 0);
   for (const value of ['0|H0STCNT0|001|bad', '1|H0STCNI0|001|encrypted', '{}']) assert.deepEqual(parseTrades(value), []);
+});
+test('KIS integrated feed accepts only real 16:00–20:00 after-session prints', () => {
+  const [tick] = parseTrades(`0|H0UNCNT0|001|${domestic('180000').join('^')}`);
+  assert.equal(tick.price, 10100);
+  assert.equal(tick.session, 'after');
+  assert.equal(tick.minute, 1080);
+  assert.equal(parseTrades(`0|H0UNCNT0|001|${domestic('200001').join('^')}`).length, 0);
 });
 test('KIS multi-record frames are decoded individually', () => {
   const ticks = parseTrades(`0|H0STCNT0|002|${[...domestic(), ...domestic('110001')].join('^')}`);

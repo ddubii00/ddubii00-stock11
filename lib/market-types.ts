@@ -14,6 +14,10 @@ export type Quote = {
   asOf: string;
   market?: Exclude<Market, 'SP500' | 'DOW'>;
   marketStatus?: string;
+  /** The provider that determined this price, not merely the page provider. */
+  priceSource?: 'kis-live' | 'kis-rest' | 'kis-cache' | 'naver-fallback';
+  /** KRX is the 15:30 regular close; UN is the KRX/NXT unified after session. */
+  priceSession?: 'regular' | 'after';
   pending?: boolean;
   instrumentType?: 'etf';
 };

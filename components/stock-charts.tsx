@@ -4,7 +4,7 @@ import { useId, useMemo } from 'react';
 import { makeChartModel, minuteLabel } from '@/lib/chart-model';
 import type { CandleSeries, Market, MinuteSeries, Quote } from '@/lib/market-types';
 
-export type LiveTick = Pick<Quote, 'price' | 'previousClose' | 'change' | 'changePrice' | 'asOf'> & { code: string; market: Market; date: string; minute: number };
+export type LiveTick = Pick<Quote, 'price' | 'previousClose' | 'change' | 'changePrice' | 'asOf' | 'priceSession'> & { code: string; market: Market; date: string; minute: number };
 export function Sparkline({ series: snapshot, tick, name, now, mini = false }: {
   series?: MinuteSeries; tick?: LiveTick; name: string; now: number; mini?: boolean;
 }) {
