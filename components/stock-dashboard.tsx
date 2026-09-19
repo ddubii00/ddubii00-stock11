@@ -29,8 +29,8 @@ const views = markets.flatMap((market) => [
   { value: `${market.toLowerCase()}-chart`, market, graph: true, label: `${marketLabel(market)} 차트` },
 ]);
 const watchViews = ([0, 1, 2, 3] as WatchlistId[]).flatMap((list) => [
-  { value: list === 0 ? 'watchlist' : `watchlist${list + 1}`, list, graph: false, label: list === 0 ? '1. 롱 보유' : `관심${list + 1}` },
-  { value: list === 0 ? 'watchlist-chart' : `watchlist${list + 1}-chart`, list, graph: true, label: list === 0 ? '1. 롱 보유 차트' : `관심${list + 1} 차트` },
+  { value: list === 0 ? 'watchlist' : `watchlist${list + 1}`, list, graph: false, label: list === 0 ? '관심' : `관심${list + 1}` },
+  { value: list === 0 ? 'watchlist-chart' : `watchlist${list + 1}-chart`, list, graph: true, label: list === 0 ? '관심 차트' : `관심${list + 1} 차트` },
 ]);
 const textScaleCycle: TextScale[] = [-1, 0, 1, 2, 3, 4, 6];
 const tone = (change: number) => change > 0 ? 'price-up' : change < 0 ? 'price-down' : 'price-flat';
@@ -281,7 +281,7 @@ export function Board({ market, graph, payload, largeText, textScale = largeText
     </div>
     <footer className="board-footer">
       <p className={error ? 'connection-error' : ''}>{error ?? (payload ? `${watch ? '관심종목 · 한국/미국 현지 정규장' : `${statusLabel(payload.marketStatus)} · ${payload.marketStatus === 'OPEN' ? '정규장 현재가' : '정규장 최종가격'} · ${asOf}${isUS(market) ? ' ET' : ''}`} · ${layout.columns}열${graph ? ' · 실제 분봉 · 전일 기준선 · Y축 자동' : ''}` : '네이버 증권 연결 중')}
-        {provider === 'kis' && autoRefresh && payload?.marketStatus === 'OPEN' && <span> · {liveStatus.state === 'connected' && liveStatus.subscribed > 0 ? `KIS 구독 ${liveStatus.subscribed}/${visible.length} · 미구독 30초` : 'KIS 연결 대기 · 30초 갱신'}</span>}
+        {provider === 'kis' && autoRefresh && payload?.marketStatus === 'OPEN' && <span> · {liveStatus.state === 'connected' && liveStatus.subscribed > 0 ? `KIS 구독 ${liveStatus.subscribed}/${liveStatus.requested || visible.length} · 미구독 30초` : 'KIS 연결 대기 · 30초 갱신'}</span>}
       </p>
       <Pagination className="board-pagination" aria-label={`${market} 종목 페이지`}><PaginationContent>
         <PaginationItem><Button variant="ghost" size="icon" disabled={currentPage === 0} onClick={() => setPage(currentPage - 1)} aria-label="이전 종목"><ChevronLeft /></Button></PaginationItem>

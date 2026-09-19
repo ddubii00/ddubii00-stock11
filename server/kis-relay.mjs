@@ -10,7 +10,10 @@ const limit = Math.max(1, Math.min(40, Number(process.env.KIS_MAX_SUBSCRIPTIONS)
 const clients = new Set();
 const sent = new Map();
 const accepted = new Set();
-const rejected = new Set();
+// A KIS acknowledgement can fail transiently. Keep it out of the rapid 500 ms
+// reconcile loop, then try it again instead of leaving the subscription stuck.
+const rejected = new Map();
+const SUBSCRIPTION_RETRY_MS = 30_000;
 let socket, approval, approvalExpires = 0, connecting = false, retryAt = 0;
 let state = appKey && appSecret ? 'idle' : 'unconfigured';
 let accessToken, accessTokenExpires = 0, tokenPending;
@@ -21,7 +24,7 @@ const KIS_ORIGIN = 'https://openapi.koreainvestment.com:9443';
 const QUOTE_TTL = 25_000;
 const restMinInterval = Math.max(100, Number(process.env.KIS_REST_MIN_INTERVAL_MS) || 350);
 const restMaxConcurrency = Math.max(1, Math.min(8, Number(process.env.KIS_REST_MAX_CONCURRENCY) || 2));
-const diagnostics = { restRequests: 0, restSuccess: 0, restFailures: 0, restRateLimited: 0, restRetries: 0, lastError: new Map() };
+const diagnostics = { restRequests: 0, restSuccess: 0, restFailures: 0, restRateLimited: 0, restRetries: 0, lastError: new Map(), subscriptionErrors: new Map() };
 const restQueue = []; let restActive = 0, restLastStarted = 0, restTimer;
 
 function domestic(market) { return market === 'KOSPI' || market === 'KOSDAQ'; }
@@ -52,6 +55,15 @@ function reportRestShape({ market, code, session, body }) {
   console.info('KIS REST schema', JSON.stringify({ market, code, session, rt_cd: body?.rt_cd, msg_cd: body?.msg_cd, msg1: body?.msg1,
     outputFields: output && typeof output === 'object' ? Object.keys(output).sort() : [],
     values: { stck_prpr: output?.stck_prpr, stck_prdy_clpr: output?.stck_prdy_clpr, prdy_vrss: output?.prdy_vrss, prdy_ctrt: output?.prdy_ctrt, acml_vol: output?.acml_vol, stck_bsop_date: output?.stck_bsop_date, stck_cntg_hour: output?.stck_cntg_hour } }));
+}
+function reportSubscriptionError(id, body) {
+  // Keep only public symbol/subscription metadata: approvals and credentials
+  // are never stored or logged.
+  const value = JSON.stringify({ id, rt_cd: body?.rt_cd, msg_cd: body?.msg_cd, msg1: body?.msg1 });
+  if (diagnostics.subscriptionErrors.get(id) !== value) {
+    diagnostics.subscriptionErrors.set(id, value);
+    console.warn(`KIS WebSocket subscription failure ${value}`);
+  }
 }
 function drainRestQueue() {
   clearTimeout(restTimer);
@@ -166,6 +178,12 @@ function desired() {
   }
   return result;
 }
+function canRetrySubscription(id) {
+  const retryAt = rejected.get(id);
+  if (!retryAt) return true;
+  if (retryAt <= Date.now()) { rejected.delete(id); return true; }
+  return false;
+}
 async function connect() {
   if (!appKey || !appSecret || connecting || !clients.size || Date.now() < retryAt || (socket && socket.readyState < 2)) return;
   connecting = true;
@@ -184,7 +202,7 @@ async function connect() {
     socket = new WebSocket('ws://ops.koreainvestment.com:21000');
     const current = socket;
     const handshakeTimeout = setTimeout(() => { if (current.readyState === WebSocket.CONNECTING) current.close(); }, 15_000);
-    socket.addEventListener('open', () => { clearTimeout(handshakeTimeout); sent.clear(); accepted.clear(); rejected.clear(); state = 'connected'; status(); });
+    socket.addEventListener('open', () => { clearTimeout(handshakeTimeout); sent.clear(); accepted.clear(); rejected.clear(); diagnostics.subscriptionErrors.clear(); state = 'connected'; status(); });
     socket.addEventListener('message', ({ data }) => {
       if (typeof data !== 'string') return;
       if (data.startsWith('{')) {
@@ -192,9 +210,9 @@ async function connect() {
           const value = JSON.parse(data);
           if (value.header?.tr_id === 'PINGPONG') { current.send(data); return; }
           const id = `${value.header?.tr_id}:${value.header?.tr_key}`;
-          if (value.body?.rt_cd === '0' && sent.has(id)) accepted.add(id);
+          if (value.body?.rt_cd === '0' && sent.has(id)) { accepted.add(id); rejected.delete(id); diagnostics.subscriptionErrors.delete(id); }
           else if (value.body?.rt_cd === '1') {
-            accepted.delete(id); rejected.add(id);
+            accepted.delete(id); sent.delete(id); rejected.set(id, Date.now() + SUBSCRIPTION_RETRY_MS); reportSubscriptionError(id, value.body);
             if (String(value.body?.msg1).toLowerCase().includes('approval')) approvalExpires = 0;
           }
           status();
@@ -204,7 +222,7 @@ async function connect() {
       for (const tick of parseTrades(data)) {
         const item = sent.get(tick.subscriptionId);
         if (!item) continue;
-        accepted.add(item.id);
+        accepted.add(item.id); rejected.delete(item.id); diagnostics.subscriptionErrors.delete(item.id);
         for (const client of clients) if (client.ids.has(item.id)) {
           const cache = tick.session === 'after' ? afterSessionCache : regularCloseCache;
           const key = quoteKey(client.market, item.code);
@@ -232,7 +250,7 @@ const reconcile = setInterval(() => {
   if (socket?.readyState !== WebSocket.OPEN) return;
   const wanted = desired();
   const removed = [...sent.values()].find((item) => !wanted.has(item.id));
-  const added = [...wanted.values()].find((item) => !sent.has(item.id) && !rejected.has(item.id));
+  const added = [...wanted.values()].find((item) => !sent.has(item.id) && canRetrySubscription(item.id));
   const item = removed || added;
   if (!item) { status(); return; }
   try {
@@ -247,7 +265,7 @@ const server = createServer(async (request, response) => {
   const url = new URL(request.url || '/', 'http://127.0.0.1');
   if (url.pathname === '/health') {
     response.writeHead(200, { 'content-type': 'application/json' });
-    response.end(JSON.stringify({ state, configured: Boolean(appKey && appSecret), wsLimit: limit, wsAccepted: accepted.size, wsRequested: sent.size, restQueueDepth: restQueue.length, restRequests: diagnostics.restRequests, restSuccess: diagnostics.restSuccess, restFailures: diagnostics.restFailures, restRateLimited: diagnostics.restRateLimited, restRetries: diagnostics.restRetries, regularCacheSize: regularCloseCache.size, afterCacheSize: afterSessionCache.size, recentErrors: [...diagnostics.lastError.values()].slice(-12).map((entry) => JSON.parse(entry)) })); return;
+    response.end(JSON.stringify({ state, configured: Boolean(appKey && appSecret), wsLimit: limit, wsAccepted: accepted.size, wsRequested: sent.size, wsRejected: rejected.size, restQueueDepth: restQueue.length, restRequests: diagnostics.restRequests, restSuccess: diagnostics.restSuccess, restFailures: diagnostics.restFailures, restRateLimited: diagnostics.restRateLimited, restRetries: diagnostics.restRetries, regularCacheSize: regularCloseCache.size, afterCacheSize: afterSessionCache.size, recentErrors: [...diagnostics.lastError.values()].slice(-12).map((entry) => JSON.parse(entry)), recentSubscriptionErrors: [...diagnostics.subscriptionErrors.values()].slice(-12).map((entry) => JSON.parse(entry)) })); return;
   }
   const market = url.searchParams.get('market');
   const codes = [...new Set((url.searchParams.get('codes') || '').split(',').filter(Boolean))];
