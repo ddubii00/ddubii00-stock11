@@ -90,6 +90,29 @@ async function readDomesticRealtimeVolume(code: string): Promise<string | number
   }
 }
 
+// The market-value list can retain the regular quote while NXT/after-market
+// data changes independently.  Read the provider's dedicated polling field in
+// KRX2 mode so its price is not accidentally inherited from a list snapshot.
+type DomesticPollingQuote = { cd?: string; nxtOverMarketPriceInfo?: Stock['overMarketPriceInfo'] };
+async function readDomesticAfterPrices(codes: string[]): Promise<Map<string, NonNullable<Stock['overMarketPriceInfo']>>> {
+  const result = new Map<string, NonNullable<Stock['overMarketPriceInfo']>>();
+  for (let index = 0; index < codes.length; index += 80) {
+    const query = `SERVICE_ITEM:${codes.slice(index, index + 80).join(',')}`;
+    try {
+      const payload = await naverJson<{ result?: { areas?: { datas?: DomesticPollingQuote[] }[] } }>(
+        `https://polling.finance.naver.com/api/realtime?query=${encodeURIComponent(query)}`, 5000,
+      );
+      for (const item of payload.result?.areas?.flatMap((area) => area.datas ?? []) ?? []) {
+        const after = item.nxtOverMarketPriceInfo;
+        if (item.cd && after && number(after.overPrice) > 0) result.set(item.cd, after as NonNullable<Stock['overMarketPriceInfo']>);
+      }
+    } catch {
+      // The market snapshot already contains a best-effort after-market field.
+    }
+  }
+  return result;
+}
+
 // Foreign basic snapshots can return an apostrophe placeholder for volume.
 // The latest daily bar carries the numeric accumulated volume instead.
 async function readForeignVolume(code: string): Promise<string | number | undefined> {
@@ -122,6 +145,13 @@ export async function readStocks(market: Market, afterMarket = false): Promise<O
   }
   stocks = stocks.slice(0, 200);
   if (!stocks.length) throw new Error('종목 데이터를 받지 못했습니다.');
+  if (afterMarket && domestic(market)) {
+    const prices = await readDomesticAfterPrices(stocks.map((stock) => stock.itemCode ?? stock.reutersCode ?? '').filter(Boolean));
+    stocks = stocks.map((stock) => {
+      const after = prices.get(stock.itemCode ?? stock.reutersCode ?? '');
+      return after ? { ...stock, overMarketPriceInfo: after } : stock;
+    });
+  }
   return {
     stocks: stocks.map((stock) => quoteFrom(stock, market, afterMarket)),
     marketStatus: afterMarket && domestic(market) && stocks.some((stock) => stock.overMarketPriceInfo?.overMarketStatus === 'OPEN') ? 'AFTER' : stocks[0].marketStatus,
@@ -229,6 +259,10 @@ export async function readQuote(market: Market, code: string, afterMarket = fals
   if (!domestic(market) && !Number.isFinite(number(stock.accumulatedTradingVolume ?? stock.tradeVolume ?? stock.volume))) {
     const volume = await readForeignVolume(code);
     if (volume !== undefined) stock.accumulatedTradingVolume = volume;
+  }
+  if (afterMarket && domestic(market)) {
+    const after = (await readDomesticAfterPrices([code])).get(code);
+    if (after) stock.overMarketPriceInfo = after;
   }
   return quoteFrom(stock, market, afterMarket);
 }

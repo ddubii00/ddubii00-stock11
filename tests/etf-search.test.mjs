@@ -61,12 +61,17 @@ test('foreign watchlist quotes replace apostrophe volume placeholders with numer
 });
 
 test('KRX2 uses Naver after-market quote fields while KRX keeps the regular close', async () => {
-  globalThis.fetch = async () => Response.json({ stocks: [{
+  globalThis.fetch = async (url) => Response.json(String(url).includes('polling.finance.naver.com') ? {
+    result: { areas: [{ datas: [{ cd: '000660', nxtOverMarketPriceInfo: {
+      overPrice: '103', compareToPreviousClosePrice: '4', fluctuationsRatio: '4', overMarketStatus: 'OPEN',
+      localTradedAt: '2026-09-08T18:00:00+09:00', accumulatedTradingVolume: '765432', compareToPreviousPrice: { code: '2', name: '상승' },
+    } }] }] },
+  } : { stocks: [{
     stockEndType: 'stock', itemCode: '000660', reutersCode: '000660', stockName: 'SK하이닉스', closePrice: '100',
     compareToPreviousClosePrice: '1', fluctuationsRatio: '1', marketStatus: 'CLOSE', localTradedAt: '2026-09-08T15:30:00+09:00',
     stockExchangeType: { name: 'KOSPI' }, overMarketPriceInfo: {
-      overPrice: '103', compareToPreviousClosePrice: '4', fluctuationsRatio: '4', overMarketStatus: 'OPEN',
-      localTradedAt: '2026-09-08T18:00:00+09:00', accumulatedTradingVolume: '765432', compareToPreviousPrice: { code: '2', name: '상승' },
+      overPrice: '102', compareToPreviousClosePrice: '3', fluctuationsRatio: '3', overMarketStatus: 'OPEN',
+      localTradedAt: '2026-09-08T17:00:00+09:00', accumulatedTradingVolume: '654321', compareToPreviousPrice: { code: '2', name: '상승' },
     },
   }] });
   const regular = await readStocks('KOSPI');

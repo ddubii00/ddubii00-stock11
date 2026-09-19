@@ -337,6 +337,9 @@ export function StockDashboard() {
   const [watchQuotes, setWatchQuotes] = useState<Record<string, Quote>>({});
   const [watchError, setWatchError] = useState('');
   const inFlight = useRef(false);
+  const refreshQueued = useRef(false);
+  const krxModeRef = useRef(krxMode);
+  krxModeRef.current = krxMode;
 
   useEffect(() => {
     try {
@@ -400,17 +403,19 @@ export function StockDashboard() {
   }, []);
 
   const refresh = useCallback(async () => {
-    if (inFlight.current) return;
+    if (inFlight.current) { refreshQueued.current = true; return; }
     inFlight.current = true;
+    const requestedKrxMode = krxModeRef.current;
     setBusy(true);
     try {
       await Promise.all([...markets.map(async (market) => {
         try {
-          const after = krxMode === 'KRX2' && (market === 'KOSPI' || market === 'KOSDAQ') ? '&after=1' : '';
+          const after = requestedKrxMode === 'KRX2' && (market === 'KOSPI' || market === 'KOSDAQ') ? '&after=1' : '';
           const response = await fetch(`${apiPath('/api/market')}?market=${market}${market === 'KOSPI' ? '&indices=1' : ''}${after}`, { cache: 'no-store', signal: AbortSignal.timeout(15000) });
           if (!response.ok) throw new Error('시세 연결 재시도 중 · 마지막 수신값 표시');
           const result = await response.json() as MarketPayload;
           if (!result.stocks?.length) throw new Error('시세 수신 대기');
+          if (requestedKrxMode !== krxModeRef.current) return;
           setData((current) => ({ ...current, [market]: result }));
           setErrors((current) => ({ ...current, [market]: undefined }));
           if (result.indices?.length) setIndices(result.indices);
@@ -429,8 +434,12 @@ export function StockDashboard() {
       setNow(Date.now());
       setBusy(false);
       inFlight.current = false;
+      if (refreshQueued.current) {
+        refreshQueued.current = false;
+        queueMicrotask(() => { void refresh(); });
+      }
     }
-  }, [krxMode]);
+  }, []);
 
   useEffect(() => {
     void refresh();
