@@ -12,13 +12,17 @@ const sent = new Map();
 const accepted = new Set();
 const rejected = new Set();
 let socket, approval, approvalExpires = 0, connecting = false, retryAt = 0;
-let state = appKey && appSecret ? 'connecting' : 'unconfigured';
+let state = appKey && appSecret ? 'idle' : 'unconfigured';
 let accessToken, accessTokenExpires = 0, tokenPending;
-const regularQuotes = new Map();
-const afterQuotes = new Map();
+const regularCloseCache = new Map();
+const afterSessionCache = new Map();
 const quotePending = new Map();
 const KIS_ORIGIN = 'https://openapi.koreainvestment.com:9443';
 const QUOTE_TTL = 25_000;
+const restMinInterval = Math.max(100, Number(process.env.KIS_REST_MIN_INTERVAL_MS) || 350);
+const restMaxConcurrency = Math.max(1, Math.min(8, Number(process.env.KIS_REST_MAX_CONCURRENCY) || 2));
+const diagnostics = { restRequests: 0, restSuccess: 0, restFailures: 0, restRateLimited: 0, restRetries: 0, lastError: new Map() };
+const restQueue = []; let restActive = 0, restLastStarted = 0, restTimer;
 
 function domestic(market) { return market === 'KOSPI' || market === 'KOSDAQ'; }
 function quoteKey(market, code) { return `${market}:${code}`; }
@@ -29,8 +33,28 @@ function signed(value, sign) {
   return ['4', '5'].includes(String(sign)) ? -Math.abs(parsed) : String(sign) === '3' ? 0 : parsed;
 }
 function koreaAsOf(date, time) {
-  return /^\d{8}$/.test(date) && /^\d{6}$/.test(time) ? `${date.slice(0, 4)}-${date.slice(4, 6)}-${date.slice(6, 8)}T${time.slice(0, 2)}:${time.slice(2, 4)}:${time.slice(4, 6)}+09:00` : new Date().toISOString();
+  return /^\d{8}$/.test(date) && /^\d{6}$/.test(time) ? `${date.slice(0, 4)}-${date.slice(4, 6)}-${date.slice(6, 8)}T${time.slice(0, 2)}:${time.slice(2, 4)}:${time.slice(4, 6)}+09:00` : undefined;
 }
+function seoulParts() { return new Intl.DateTimeFormat('en-CA', { timeZone: 'Asia/Seoul', year: 'numeric', month: '2-digit', day: '2-digit', hour: '2-digit', minute: '2-digit', hourCycle: 'h23' }).formatToParts(new Date()).reduce((out, part) => ({ ...out, [part.type]: part.value }), {}); }
+function seoulClock() { const part = seoulParts(); return { date: `${part.year}${part.month}${part.day}`, minute: Number(part.hour) * 60 + Number(part.minute) }; }
+function sessionFor(requestedAfter) { const { minute } = seoulClock(); if (!requestedAfter) return 'regular'; return minute >= 960 ? 'after' : 'regular'; }
+function reportRestError({ market, code, session, status, body, timeout }) {
+  diagnostics.restFailures++;
+  if (status === 429 || body?.msg_cd === 'EGW00201') diagnostics.restRateLimited++;
+  const message = JSON.stringify({ market, code, session, status, rt_cd: body?.rt_cd, msg_cd: body?.msg_cd, msg1: body?.msg1, timeout: Boolean(timeout) });
+  const key = `${market}:${code}:${session}:${status ?? 'network'}:${body?.msg_cd ?? ''}`;
+  if (diagnostics.lastError.get(key) !== message) { diagnostics.lastError.set(key, message); console.warn(`KIS REST failure ${message}`); }
+}
+function drainRestQueue() {
+  clearTimeout(restTimer);
+  if (!restQueue.length || restActive >= restMaxConcurrency) return;
+  const delay = Math.max(0, restMinInterval - (Date.now() - restLastStarted));
+  if (delay) { restTimer = setTimeout(drainRestQueue, delay); return; }
+  const job = restQueue.shift(); restActive++; restLastStarted = Date.now(); diagnostics.restRequests++;
+  void job().finally(() => { restActive--; drainRestQueue(); });
+  if (restActive < restMaxConcurrency) drainRestQueue();
+}
+function queueRest(job) { return new Promise((resolve, reject) => { restQueue.push(async () => { try { resolve(await job()); } catch (error) { reject(error); } }); drainRestQueue(); }); }
 async function token() {
   if (accessToken && accessTokenExpires > Date.now() + 60_000) return accessToken;
   if (tokenPending) return tokenPending;
@@ -48,28 +72,61 @@ async function token() {
   })();
   try { return await tokenPending; } finally { tokenPending = undefined; }
 }
-async function domesticRestQuote(market, code, session) {
+async function kisGet(path, trId, params, market, code, session) {
+  return queueRest(async () => {
+    let lastError;
+    for (let attempt = 0; attempt < 3; attempt++) {
+      const url = new URL(path, KIS_ORIGIN);
+      for (const [key, value] of Object.entries(params)) url.searchParams.set(key, value);
+      let response, body;
+      try {
+        response = await fetch(url, { headers: { authorization: `Bearer ${await token()}`, appkey: appKey, appsecret: appSecret, tr_id: trId }, cache: 'no-store', signal: AbortSignal.timeout(8000) });
+        body = await response.json();
+      } catch (error) {
+        lastError = error; reportRestError({ market, code, session, timeout: error?.name === 'TimeoutError' });
+      }
+      if (response?.ok && body?.rt_cd === '0') { diagnostics.restSuccess++; return body; }
+      const retry = !response || response.status === 429 || response.status >= 500 || ['EGW00123', 'EGW00201'].includes(body?.msg_cd);
+      reportRestError({ market, code, session, status: response?.status, body, timeout: !response });
+      if (!retry || attempt === 2) throw new Error(`KIS REST ${body?.msg_cd ?? response?.status ?? 'network'}`);
+      diagnostics.restRetries++;
+      await new Promise((resolve) => setTimeout(resolve, (250 * (2 ** attempt)) + Math.floor(Math.random() * 100)));
+    }
+    throw lastError ?? new Error('KIS REST unavailable');
+  });
+}
+async function historicalRegularClose(market, code) {
+  const key = quoteKey(market, code), { date } = seoulClock();
+  const cached = regularCloseCache.get(key);
+  if (cached?.value?.date === date) return { ...cached.value, priceSource: 'kis-cache' };
+  const body = await kisGet('/uapi/domestic-stock/v1/quotations/inquire-daily-price', 'FHKST01010400', {
+    FID_COND_MRKT_DIV_CODE: 'J', FID_INPUT_ISCD: code, FID_PERIOD_DIV_CODE: 'D', FID_ORG_ADJ_PRC: '1',
+  }, market, code, 'regular');
+  const row = body.output?.find((item) => item.stck_bsop_date === date) ?? body.output?.[0];
+  const price = number(row?.stck_clpr), changePrice = signed(row?.prdy_vrss, row?.prdy_vrss_sign), change = signed(row?.prdy_ctrt, row?.prdy_vrss_sign);
+  const previousClose = price - changePrice;
+  if (![price, changePrice, change, previousClose].every(Number.isFinite) || price <= 0 || previousClose <= 0) throw new Error('KIS daily close unavailable');
+  const value = { chartCode: code, price, change, changePrice, previousClose, volume: Number.isFinite(number(row?.acml_vol)) ? String(number(row.acml_vol)) : undefined, asOf: `${row.stck_bsop_date}T15:30:00+09:00`, fetchedAt: new Date().toISOString(), marketStatus: 'CLOSE', priceSource: 'kis-history', priceSession: 'regular', date: row.stck_bsop_date };
+  regularCloseCache.set(key, { value }); return value;
+}
+async function domesticRestQuote(market, code, requestedAfter) {
+  const session = sessionFor(requestedAfter);
   const key = quoteKey(market, code);
-  const cache = session === 'after' ? afterQuotes : regularQuotes;
+  const cache = session === 'after' ? afterSessionCache : regularCloseCache;
+  // KRX after 15:30 is a close, never a current-price REST interpretation.
+  if (session === 'regular' && seoulClock().minute > 930) return historicalRegularClose(market, code);
   const hit = cache.get(key);
   if (hit && hit.expires > Date.now()) return { ...hit.value, priceSource: 'kis-cache' };
   const pendingKey = `${session}:${key}`;
   if (quotePending.has(pendingKey)) return quotePending.get(pendingKey);
   const task = (async () => {
-    // Official KIS inquire-price: J=KRX, UN=KRX/NXT integrated.  The relay
-    // owns the bearer token and exposes only numeric quote fields to the app.
-    const url = new URL('/uapi/domestic-stock/v1/quotations/inquire-price', KIS_ORIGIN);
-    url.searchParams.set('FID_COND_MRKT_DIV_CODE', session === 'after' ? 'UN' : 'J');
-    url.searchParams.set('FID_INPUT_ISCD', code);
-    const response = await fetch(url, { headers: {
-      authorization: `Bearer ${await token()}`, appkey: appKey, appsecret: appSecret, tr_id: 'FHKST01010100',
-    }, cache: 'no-store', signal: AbortSignal.timeout(8000) });
-    const body = await response.json();
+    const body = await kisGet('/uapi/domestic-stock/v1/quotations/inquire-price', 'FHKST01010100', { FID_COND_MRKT_DIV_CODE: session === 'after' ? 'UN' : 'J', FID_INPUT_ISCD: code }, market, code, session);
     const output = body?.output;
     const price = number(output?.stck_prpr), changePrice = signed(output?.prdy_vrss, output?.prdy_vrss_sign), change = signed(output?.prdy_ctrt, output?.prdy_vrss_sign), previousClose = number(output?.stck_prdy_clpr);
-    if (!response.ok || body?.rt_cd !== '0' || ![price, changePrice, change, previousClose].every(Number.isFinite) || price <= 0) throw new Error('KIS quote unavailable');
-    const value = { chartCode: code, price, change, changePrice, previousClose, volume: Number.isFinite(number(output?.acml_vol)) ? String(number(output.acml_vol)) : undefined,
-      asOf: koreaAsOf(String(output?.stck_bsop_date ?? ''), String(output?.stck_cntg_hour ?? '')), marketStatus: session === 'after' ? 'AFTER' : 'CLOSE', priceSource: 'kis-rest', priceSession: session };
+    const safePreviousClose = previousClose > 0 ? previousClose : price - changePrice;
+    if (![price, changePrice, change, safePreviousClose].every(Number.isFinite) || price <= 0 || safePreviousClose <= 0) throw new Error('KIS quote unavailable');
+    const value = { chartCode: code, price, change, changePrice, volume: Number.isFinite(number(output?.acml_vol)) ? String(number(output.acml_vol)) : undefined,
+      previousClose: safePreviousClose, asOf: koreaAsOf(String(output?.stck_bsop_date ?? ''), String(output?.stck_cntg_hour ?? '')) ?? '', fetchedAt: new Date().toISOString(), marketStatus: session === 'after' ? 'AFTER' : 'OPEN', priceSource: 'kis-rest', priceSession: session };
     cache.set(key, { expires: Date.now() + QUOTE_TTL, value });
     return value;
   })();
@@ -138,8 +195,11 @@ async function connect() {
         if (!item) continue;
         accepted.add(item.id);
         for (const client of clients) if (client.ids.has(item.id)) {
-          const cache = tick.session === 'after' ? afterQuotes : regularQuotes;
-          cache.set(quoteKey(client.market, item.code), { expires: Date.now() + QUOTE_TTL, value: { ...tick, chartCode: item.code, marketStatus: tick.session === 'after' ? 'AFTER' : 'OPEN', priceSource: 'kis-live', priceSession: tick.session } });
+          const cache = tick.session === 'after' ? afterSessionCache : regularCloseCache;
+          const key = quoteKey(client.market, item.code);
+          // The last H0STCNT0 print is the immutable regular close for that
+          // business date. H0UNCNT0 has a wholly separate after-session map.
+          if (tick.session === 'after' || tick.minute <= 930 || !cache.has(key)) cache.set(key, { expires: tick.session === 'after' ? Date.now() + QUOTE_TTL : undefined, value: { ...tick, chartCode: item.code, marketStatus: tick.session === 'after' ? 'AFTER' : 'OPEN', priceSource: 'kis-live', priceSession: tick.session } });
           event(client, 'quote', { ...tick, code: item.code, market: client.market });
         }
       }
@@ -147,7 +207,9 @@ async function connect() {
     socket.addEventListener('error', () => { state = 'reconnecting'; status(); current.close(); });
     socket.addEventListener('close', () => {
       clearTimeout(handshakeTimeout); sent.clear(); accepted.clear(); rejected.clear();
-      state = 'reconnecting'; retryAt = Date.now() + 30_000; status();
+      if (!clients.size) { state = 'idle'; retryAt = 0; }
+      else { state = 'reconnecting'; retryAt = Date.now() + 30_000; }
+      status();
     });
   } catch { state = 'error'; retryAt = Date.now() + 60_000; status(); }
   finally { connecting = false; }
@@ -174,13 +236,13 @@ const server = createServer(async (request, response) => {
   const url = new URL(request.url || '/', 'http://127.0.0.1');
   if (url.pathname === '/health') {
     response.writeHead(200, { 'content-type': 'application/json' });
-    response.end(JSON.stringify({ state, limit, configured: Boolean(appKey && appSecret) })); return;
+    response.end(JSON.stringify({ state, configured: Boolean(appKey && appSecret), wsLimit: limit, wsAccepted: accepted.size, wsRequested: sent.size, restQueueDepth: restQueue.length, restRequests: diagnostics.restRequests, restSuccess: diagnostics.restSuccess, restFailures: diagnostics.restFailures, restRateLimited: diagnostics.restRateLimited, regularCacheSize: regularCloseCache.size, afterCacheSize: afterSessionCache.size })); return;
   }
   const market = url.searchParams.get('market');
   const codes = [...new Set((url.searchParams.get('codes') || '').split(',').filter(Boolean))];
   const after = url.searchParams.get('after') === '1';
   if (request.method === 'GET' && url.pathname === '/quotes' && ['KOSPI', 'KOSDAQ', 'NASDAQ', 'NYSE', 'AMEX'].includes(market) && codes.length && codes.length <= 40 && codes.every((code) => /^[A-Za-z0-9.^-]{1,24}$/.test(code))) {
-    const session = after && domestic(market) ? 'after' : 'regular';
+    const session = domestic(market) ? sessionFor(after) : 'regular';
     const quotes = {};
     // The relay serializes KIS REST into small bounded groups.  Foreign
     // symbols return only their real WebSocket cache; the app then uses its
@@ -190,9 +252,9 @@ const server = createServer(async (request, response) => {
       while (cursor < codes.length) {
         const code = codes[cursor++], key = quoteKey(market, code);
         try {
-          if (domestic(market)) quotes[code] = await domesticRestQuote(market, code, session);
+          if (domestic(market)) quotes[code] = await domesticRestQuote(market, code, after);
           else {
-            const hit = (session === 'after' ? afterQuotes : regularQuotes).get(key);
+            const hit = regularCloseCache.get(key);
             if (hit) quotes[code] = { ...hit.value, priceSource: 'kis-cache' };
           }
         } catch { /* The app marks this row as Naver fallback. */ }
@@ -211,7 +273,7 @@ const server = createServer(async (request, response) => {
   const client = { response, market, subscriptions, ids: new Set(subscriptions.map((item) => item.id)), requested: codes.length, lastStatus: '' };
   clients.add(client); status(); void connect();
   const keepalive = setInterval(() => response.write(': keepalive\n\n'), 15_000);
-  response.on('close', () => { clearInterval(keepalive); clients.delete(client); });
+  response.on('close', () => { clearInterval(keepalive); clients.delete(client); if (!clients.size && state === 'connected') { state = 'idle'; socket?.close(); } });
 });
 server.listen(port, host, () => console.info(`Stock11 quote relay: http://${host}:${server.address().port} (${state})`));
 function shutdown() { clearInterval(reconcile); for (const client of clients) client.response.end(); socket?.close(); server.close(); }

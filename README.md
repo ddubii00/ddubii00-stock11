@@ -81,6 +81,7 @@ docker compose --env-file .env.oracle up -d --build
 docker compose --env-file .env.oracle ps
 curl http://127.0.0.1:3011/api/health
 curl http://127.0.0.1:3011/api/runtime
+docker compose --env-file .env.oracle exec kis-relay node -e "fetch('http://127.0.0.1:8091/health').then(r=>r.text()).then(console.log)"
 ```
 
 정상 설정이면 health는 `{"status":"ok"}`, runtime은 `{"provider":"kis","refreshMs":30000}`을 반환합니다. 이는 앱 실행 확인이며 KIS 인증 성공을 의미하지는 않습니다. 장중 화면 하단에서 KIS 승인 구독 수를 확인하세요.
@@ -127,6 +128,16 @@ Oracle에서는 KIS relay만 App Key/Secret과 access token을 보관합니다. 
 ### KIS 공식 근거
 
 KIS의 [국내 주식현재가 예제](https://github.com/koreainvestment/open-trading-api/blob/main/examples_llm/domestic_stock/inquire_price/inquire_price.py)는 `inquire-price`, `FHKST01010100` 및 `J`(KRX)·`NX`(NXT)·`UN`(통합) 구분을 명시합니다. 이 앱은 그 구분을 가격 캐시 키와 API 응답의 `priceSession`에도 그대로 보존합니다. 실제 운영 키로 KIS 응답 필드를 검증하기 전에는 NXT/통합 가격을 정규장 가격으로 대체하지 않습니다.
+
+### Oracle KIS 진단
+
+relay `/health`는 Docker 사설망에서만 열리며 키·토큰 없이 WebSocket 상태, 구독 수, REST 성공/실패·rate-limit 수, queue 길이, 정규장/장후 캐시 수만 반환합니다. KRX와 KRX2 결과는 아래처럼 개별 quote의 `priceSource`, `priceSession`, `asOf`, `fetchedAt`, `volume`을 비교합니다.
+
+```sh
+curl -sS 'http://127.0.0.1:3011/stock11-7/api/market?market=KOSPI' | jq '.stocks[] | select(.chartCode=="000660") | {price,priceSource,priceSession,asOf,fetchedAt,volume}'
+curl -sS 'http://127.0.0.1:3011/stock11-7/api/market?market=KOSPI&after=1' | jq '.stocks[] | select(.chartCode=="000660") | {price,priceSource,priceSession,asOf,fetchedAt,volume}'
+docker compose --env-file .env.oracle exec kis-relay node -e "fetch('http://127.0.0.1:8091/health').then(r=>r.json()).then(console.log)"
+```
 
 ## 로컬 개발과 검증
 

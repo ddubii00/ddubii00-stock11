@@ -46,7 +46,11 @@ export function parseTrades(message) {
     const changePrice = signed(row[foreign ? 13 : 4], row[foreign ? 12 : 3]);
     const asOf = isoKorea(foreign ? row[6] : date, foreign ? row[7] : time);
     if (![price, change, changePrice, Date.parse(asOf)].every(Number.isFinite) || price <= 0 || price - changePrice <= 0) continue;
-    ticks.push({ subscriptionId: `${trId}:${row[0]}`, price, change, changePrice, previousClose: price - changePrice, date, minute: Math.floor(seconds / 60), asOf, session: integrated ? 'after' : 'regular' });
+    // ACML_VOL is field 13 in the official 46-field domestic trade schema.
+    // Keep the overseas field unset until its separately documented layout is
+    // verified; do not guess a foreign field index.
+    const volume = foreign ? Number.NaN : Number(row[13]);
+    ticks.push({ subscriptionId: `${trId}:${row[0]}`, price, change, changePrice, previousClose: price - changePrice, ...(Number.isFinite(volume) && volume >= 0 ? { volume: String(volume) } : {}), date, minute: Math.floor(seconds / 60), asOf, session: integrated ? 'after' : 'regular' });
   }
   return ticks;
 }

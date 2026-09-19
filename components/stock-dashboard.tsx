@@ -94,12 +94,13 @@ export function Board({ market, graph, payload, largeText, textScale = largeText
   const [chartErrors, setChartErrors] = useState<Record<string, string>>({});
   const [liveTicks, setLiveTicks] = useState<Record<string, LiveTick>>({});
   const [liveStatus, setLiveStatus] = useState<LiveStatus>({ state: 'connecting', subscribed: 0, requested: 0 });
-  const quotes = (payload?.stocks ?? []).map((quote) => {
+  const quotes: Quote[] = (payload?.stocks ?? []).map((quote) => {
     const tick = liveTicks[quote.chartCode];
     const liveSession = afterMarket ? 'after' : 'regular';
     const canApplyTick = (quote.marketStatus ?? payload?.marketStatus) === 'OPEN' || (afterMarket && (quote.marketStatus ?? payload?.marketStatus) === 'AFTER');
-    return tick && provider === 'kis' && canApplyTick && (tick.priceSession ?? 'regular') === liveSession && Date.parse(tick.asOf) >= Date.parse(quote.asOf)
-      ? { ...quote, price: tick.price, change: tick.change, changePrice: tick.changePrice, previousClose: tick.previousClose, asOf: tick.asOf } : quote;
+    const quoteTime = Date.parse(quote.asOf);
+    return tick && provider === 'kis' && canApplyTick && (tick.priceSession ?? 'regular') === liveSession && (!Number.isFinite(quoteTime) || Date.parse(tick.asOf) >= quoteTime)
+      ? { ...quote, price: tick.price, change: tick.change, changePrice: tick.changePrice, previousClose: tick.previousClose, asOf: tick.asOf, ...(tick.volume ? { volume: tick.volume } : {}), priceSource: 'kis-live' } : quote;
   });
   const layout = fitBoard(size.width, size.height, graph, largeText, quotes.length || 200, textScale);
   const pageCount = Math.max(1, Math.ceil(quotes.length / layout.capacity));

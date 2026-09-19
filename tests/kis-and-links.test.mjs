@@ -5,7 +5,7 @@ import { stockUrl } from '../lib/stock-links.ts';
 
 const domestic = (time = '110000', sign = '2') => {
   const row = Array(46).fill('0');
-  Object.assign(row, { 0: '005930', 1: time, 2: '10100', 3: sign, 4: '100', 5: '1', 33: '20260907' });
+  Object.assign(row, { 0: '005930', 1: time, 2: '10100', 3: sign, 4: '100', 5: '1', 13: '1234567', 33: '20260907' });
   return row;
 };
 test('KIS supports alphanumeric Korean symbols and US exchange subscriptions', () => {
@@ -25,6 +25,7 @@ test('KIS domestic ticks preserve price, previous close, date and decline signs'
   assert.equal(tick.change, -1);
   assert.equal(tick.changePrice, -100);
   assert.equal(tick.previousClose, 10200);
+  assert.equal(tick.volume, '1234567');
   assert.equal(tick.minute, 660);
   assert.equal(tick.asOf, '2026-09-07T11:00:00+09:00');
 });

@@ -39,6 +39,8 @@ services:
       KIS_APP_KEY: ${KIS_APP_KEY:?Set KIS_APP_KEY in .env.oracle}
       KIS_APP_SECRET: ${KIS_APP_SECRET:?Set KIS_APP_SECRET in .env.oracle}
       KIS_MAX_SUBSCRIPTIONS: ${KIS_MAX_SUBSCRIPTIONS:-40}
+      KIS_REST_MIN_INTERVAL_MS: ${KIS_REST_MIN_INTERVAL_MS:-350}
+      KIS_REST_MAX_CONCURRENCY: ${KIS_REST_MAX_CONCURRENCY:-2}
       KIS_RELAY_HOST: 0.0.0.0
       KIS_RELAY_PORT: 8091
     # No published port: only the app container can reach this service.

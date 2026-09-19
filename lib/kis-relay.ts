@@ -1,6 +1,6 @@
 import type { Market, Quote } from './market-types';
 
-type RelayQuote = Pick<Quote, 'chartCode' | 'price' | 'previousClose' | 'change' | 'changePrice' | 'asOf' | 'marketStatus' | 'volume' | 'priceSource' | 'priceSession'>;
+type RelayQuote = Pick<Quote, 'chartCode' | 'price' | 'previousClose' | 'change' | 'changePrice' | 'asOf' | 'fetchedAt' | 'marketStatus' | 'volume' | 'priceSource' | 'priceSession'>;
 type RelayPayload = { quotes?: Record<string, RelayQuote>; source?: string };
 
 export const kisEnabled = () => process.env.VERCEL !== '1' && process.env.STOCK11_DATA_PROVIDER === 'kis';
