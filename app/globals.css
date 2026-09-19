@@ -256,20 +256,11 @@ a { color: inherit; text-decoration: none; }
 .watch-quote-table .stock-name { position: sticky; }
 .watch-quote-table .stock-name .stock-remove { top: 1px; right: 1px; width: 16px; height: 16px; padding: 1px; }
 .watch-quote-table { min-width: 430px; }
-.volume-head { text-align: left !important; padding-left: 2px !important; padding-right: 2px !important; }
-.volume-cell { padding-left: 2px !important; padding-right: 2px !important; color: #52685a; font-size: 13px; font-variant-numeric: tabular-nums; }
-
-/* Keep volume figures readable on notebook-sized screens. The table's
-   default right alignment leaves a large empty gutter before the number,
-   so left-align the value where the viewport is likely to clip the cell. */
-@media (max-width: 1600px) {
-  .watch-quote-table .volume-cell {
-    text-align: left !important;
-    padding-left: 0 !important;
-    letter-spacing: -0.3px;
-  }
-  .watch-quote-table .volume-head { padding-left: 0 !important; }
-}
+/* Keep the compact watchlist's name column usable. Volume is numeric, so it
+   can use a tighter, consistently right-aligned column without losing digits. */
+.watch-quote-table .volume-col { width: 94px; }
+.volume-head { text-align: right !important; padding-left: 2px !important; padding-right: 2px !important; }
+.volume-cell { padding-left: 2px !important; padding-right: 2px !important; text-align: right !important; color: #52685a; font-size: 13px; font-variant-numeric: tabular-nums; letter-spacing: -0.3px; }
 .change-arrow { display: inline-block; width: 14px; text-align: center; }
 
 .terminal-header { flex-basis: 68px; display: grid; grid-template-columns: 74px minmax(0, 1fr) auto; grid-template-rows: 29px 35px; grid-template-areas: 'brand tabs actions' 'sessions indices indices'; gap: 0 7px; padding-block: 2px; }
@@ -360,6 +351,9 @@ a { color: inherit; text-decoration: none; }
 .text-size-2 .graph-price .current-price { font-size: 24px; }
 .text-size-2 .graph-price .change-rate,
 .text-size-2 .kospi-chart-board .graph-price .change-rate { font-size: 22px; }
+.text-size-2 .watch-quote-table .price-col { width: 105px; }
+.text-size-2 .watch-quote-table .rate-col { width: 90px; }
+.text-size-2 .watch-quote-table .volume-col { width: 94px; }
 .text-size-3 .quote-table .price-col { width: 128px; }
 .text-size-3 .quote-table .rate-col { width: 112px; }
 .text-size-3 .quote-table .volume-col { width: 138px; }
@@ -371,6 +365,10 @@ a { color: inherit; text-decoration: none; }
 .text-size-3 .graph-price .current-price { font-size: 27px; }
 .text-size-3 .graph-price .change-rate,
 .text-size-3 .kospi-chart-board .graph-price .change-rate { font-size: 25px; }
+.text-size-3 .watch-quote-table .price-col { width: 110px; }
+.text-size-3 .watch-quote-table .rate-col { width: 96px; }
+.text-size-3 .watch-quote-table .volume-col { width: 96px; }
+.text-size-3 .watch-quote-table { min-width: 441px; }
 .text-size-4 .quote-table .price-col { width: 134px; }
 .text-size-4 .quote-table .rate-col { width: 118px; }
 .text-size-4 .quote-table .volume-col { width: 146px; }
@@ -382,6 +380,10 @@ a { color: inherit; text-decoration: none; }
 .text-size-4 .graph-price .current-price { font-size: 30px; }
 .text-size-4 .graph-price .change-rate,
 .text-size-4 .kospi-chart-board .graph-price .change-rate { font-size: 28px; }
+.text-size-4 .watch-quote-table .price-col { width: 115px; }
+.text-size-4 .watch-quote-table .rate-col { width: 100px; }
+.text-size-4 .watch-quote-table .volume-col { width: 100px; }
+.text-size-4 .watch-quote-table { min-width: 450px; }
 
 /* New stage 1: smaller than the former compact stage. */
 .text-size-small .quote-table .price-col { width: 100px; }
@@ -405,6 +407,10 @@ a { color: inherit; text-decoration: none; }
 .text-size-xlarge .graph-identity > span { font-size: 16px; }
 .text-size-xlarge .graph-price .current-price { font-size: 34px; }
 .text-size-xlarge .graph-price .change-rate { font-size: 31px; }
+.text-size-xlarge .watch-quote-table .price-col { width: 120px; }
+.text-size-xlarge .watch-quote-table .rate-col { width: 104px; }
+.text-size-xlarge .watch-quote-table .volume-col { width: 105px; }
+.text-size-xlarge .watch-quote-table { min-width: 464px; }
 
 @media (max-width: 600px) {
   .index-item { grid-template-columns: minmax(0, 1fr); grid-template-rows: 32px 18px; justify-content: stretch; }
