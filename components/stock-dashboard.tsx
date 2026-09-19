@@ -29,8 +29,8 @@ const views = markets.flatMap((market) => [
   { value: `${market.toLowerCase()}-chart`, market, graph: true, label: `${marketLabel(market)} 차트` },
 ]);
 const watchViews = ([0, 1, 2, 3] as WatchlistId[]).flatMap((list) => [
-  { value: list === 0 ? 'watchlist' : `watchlist${list + 1}`, list, graph: false, label: list === 0 ? '관심' : `관심${list + 1}` },
-  { value: list === 0 ? 'watchlist-chart' : `watchlist${list + 1}-chart`, list, graph: true, label: list === 0 ? '관심 차트' : `관심${list + 1} 차트` },
+  { value: list === 0 ? 'watchlist' : `watchlist${list + 1}`, list, graph: false, label: list === 0 ? '1. 롱 보유' : `관심${list + 1}` },
+  { value: list === 0 ? 'watchlist-chart' : `watchlist${list + 1}-chart`, list, graph: true, label: list === 0 ? '1. 롱 보유 차트' : `관심${list + 1} 차트` },
 ]);
 const textScaleCycle: TextScale[] = [-1, 0, 1, 2, 3, 4, 6];
 const tone = (change: number) => change > 0 ? 'price-up' : change < 0 ? 'price-down' : 'price-flat';
