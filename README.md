@@ -121,7 +121,9 @@ KIS의 국내 `H0STCNT0`, 미국 `HDFSCNT0` 시세를 한 개의 공유 WebSocke
 
 ### NXT 지원 가능 여부
 
-KIS 공식 API는 NXT 체결 `H0NXCNT0`와 통합 체결 `H0UNCNT0`을 지원하므로 연동 가능합니다. **현재 버전은 KRX 정규장 시세이며 NXT를 아직 섞어 표시하지 않습니다.** NXT를 활성화하려면 거래소 선택, 해당 거래시간·기준가·분봉 이력과 실제 키 테스트를 함께 연결해야 합니다. 공식 근거: [KIS 국내 실시간 함수의 ccnl_nxt / ccnl_total](https://github.com/koreainvestment/open-trading-api/blob/main/examples_user/domestic_stock/domestic_stock_functions_ws.py).
+헤더의 **KRX**는 정규장 15:30 기준가를, **KRX2**는 네이버가 제공하는 장후 체결 필드(`overMarketPriceInfo`)가 유효한 국내 종목에 한해 장후 현재가·등락률·거래량을 표시합니다. 장후 값이 없으면 정규장 값을 그대로 유지합니다. 이 선택은 종목 현재가 표시용이며, 분봉 이력과 KIS SSE는 정규장 기준을 유지합니다.
+
+KIS 공식 API는 NXT 체결 `H0NXCNT0`와 통합 체결 `H0UNCNT0`을 지원하므로, 향후 장후 분봉까지 실시간으로 연결할 수 있습니다. 이를 활성화하려면 거래소 선택, 해당 거래시간·기준가·분봉 이력과 실제 키 테스트를 함께 연결해야 합니다. 공식 근거: [KIS 국내 실시간 함수의 ccnl_nxt / ccnl_total](https://github.com/koreainvestment/open-trading-api/blob/main/examples_user/domestic_stock/domestic_stock_functions_ws.py).
 
 ## 로컬 개발과 검증
 

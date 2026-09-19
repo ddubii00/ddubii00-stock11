@@ -1,6 +1,6 @@
 import test, { after } from 'node:test';
 import assert from 'node:assert/strict';
-import { searchStocks, readQuote, readMinutes } from '../lib/naver.ts';
+import { searchStocks, readQuote, readMinutes, readStocks } from '../lib/naver.ts';
 import { restoreWatchlist } from '../lib/watchlist.ts';
 import { stockUrl } from '../lib/stock-links.ts';
 const originalFetch = globalThis.fetch;
@@ -58,4 +58,23 @@ test('foreign watchlist quotes replace apostrophe volume placeholders with numer
   });
   const quote = await readQuote('NASDAQ', 'AAPL.O');
   assert.equal(quote.volume, '9,876,543');
+});
+
+test('KRX2 uses Naver after-market quote fields while KRX keeps the regular close', async () => {
+  globalThis.fetch = async () => Response.json({ stocks: [{
+    stockEndType: 'stock', itemCode: '000660', reutersCode: '000660', stockName: 'SK하이닉스', closePrice: '100',
+    compareToPreviousClosePrice: '1', fluctuationsRatio: '1', marketStatus: 'CLOSE', localTradedAt: '2026-09-08T15:30:00+09:00',
+    stockExchangeType: { name: 'KOSPI' }, overMarketPriceInfo: {
+      overPrice: '103', compareToPreviousClosePrice: '4', fluctuationsRatio: '4', overMarketStatus: 'OPEN',
+      localTradedAt: '2026-09-08T18:00:00+09:00', accumulatedTradingVolume: '765432', compareToPreviousPrice: { code: '2', name: '상승' },
+    },
+  }] });
+  const regular = await readStocks('KOSPI');
+  const after = await readStocks('KOSPI', true);
+  assert.equal(regular.stocks[0].price, 100);
+  assert.equal(after.stocks[0].price, 103);
+  assert.equal(after.stocks[0].change, 4);
+  assert.equal(after.stocks[0].marketStatus, 'AFTER');
+  assert.equal(after.stocks[0].volume, '765,432');
+  assert.match(after.source, /장후 포함/);
 });

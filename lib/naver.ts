@@ -34,6 +34,12 @@ type Stock = {
   accumulatedTradingVolume?: string | number; tradeVolume?: string | number; volume?: string | number;
   marketStatus: string; localTradedAt: string;
   stockExchangeType?: { name: string };
+  compareToPreviousPrice?: { code?: string; name?: string; text?: string };
+  overMarketPriceInfo?: {
+    overPrice?: string | number; compareToPreviousClosePrice?: string | number; fluctuationsRatio?: string | number;
+    accumulatedTradingVolume?: string | number; localTradedAt?: string; overMarketStatus?: string;
+    compareToPreviousPrice?: { code?: string; name?: string; text?: string };
+  };
 };
 type Basic = { closePrice: string; fluctuationsRatio: string; localTradedAt: string };
 
@@ -42,18 +48,31 @@ function exchange(stock: Stock, fallback: Market): StockSelection['market'] {
   const name = stock.stockExchangeType?.name;
   return name === 'KOSPI' || name === 'KOSDAQ' || name === 'NASDAQ' || name === 'NYSE' || name === 'AMEX' ? name : fallback === 'SP500' || fallback === 'DOW' ? 'NYSE' : fallback;
 }
-function quoteFrom(stock: Stock, fallback: Market): Quote {
+function signedNumber(value: string | number | undefined, direction?: Stock['compareToPreviousPrice']) {
+  const parsed = number(value);
+  if (!Number.isFinite(parsed)) return parsed;
+  if (parsed < 0) return parsed;
+  const marker = `${direction?.code ?? ''} ${direction?.name ?? ''} ${direction?.text ?? ''}`;
+  if (/하락|FALLING|5|4/i.test(marker)) return -Math.abs(parsed);
+  if (/보합|UNCHANGED|3/i.test(marker)) return 0;
+  return Math.abs(parsed);
+}
+function quoteFrom(stock: Stock, fallback: Market, afterMarket = false): Quote {
   const market = exchange(stock, fallback);
-  const price = number(stock.closePrice), changePrice = number(stock.compareToPreviousClosePrice), change = number(stock.fluctuationsRatio);
+  const after = afterMarket && domestic(market) && stock.overMarketPriceInfo && number(stock.overMarketPriceInfo.overPrice) > 0
+    ? stock.overMarketPriceInfo : undefined;
+  const price = number(after?.overPrice ?? stock.closePrice);
+  const changePrice = after ? signedNumber(after.compareToPreviousClosePrice, after.compareToPreviousPrice) : number(stock.compareToPreviousClosePrice);
+  const change = after ? signedNumber(after.fluctuationsRatio, after.compareToPreviousPrice) : number(stock.fluctuationsRatio);
   if (![price, changePrice, change].every(Number.isFinite) || price <= 0) throw new Error('유효한 현재가가 없습니다.');
-  const volume = stock.accumulatedTradingVolume ?? stock.tradeVolume ?? stock.volume;
+  const volume = after?.accumulatedTradingVolume ?? stock.accumulatedTradingVolume ?? stock.tradeVolume ?? stock.volume;
   return {
     ...(stock.stockEndType === 'etf' ? { instrumentType: 'etf' as const } : {}),
     code: stock.symbolCode ?? stock.itemCode ?? stock.reutersCode ?? '', chartCode: stock.itemCode ?? stock.reutersCode ?? '',
-    name: stock.stockName, market, marketStatus: stock.marketStatus, price, changePrice, change, previousClose: price - changePrice,
+    name: stock.stockName, market, marketStatus: after?.overMarketStatus === 'OPEN' ? 'AFTER' : stock.marketStatus, price, changePrice, change, previousClose: price - changePrice,
     turnover: domestic(market) ? stock.accumulatedTradingValueKrwHangeul ?? '—' : stock.accumulatedTradingValue ?? '—',
     volume: Number.isFinite(number(volume)) ? number(volume).toLocaleString('en-US') : '—',
-    asOf: stock.localTradedAt,
+    asOf: after?.localTradedAt ?? stock.localTradedAt,
   };
 }
 
@@ -87,7 +106,7 @@ async function readForeignVolume(code: string): Promise<string | number | undefi
   return undefined;
 }
 
-export async function readStocks(market: Market): Promise<Omit<MarketPayload, 'indices'>> {
+export async function readStocks(market: Market, afterMarket = false): Promise<Omit<MarketPayload, 'indices'>> {
   const url = (page: number) => market === 'SP500' || market === 'DOW'
     ? `https://api.stock.naver.com/index/${market === 'DOW' ? '.DJI' : '.INX'}/stocks?page=${page}&pageSize=100`
     : !domestic(market)
@@ -104,11 +123,10 @@ export async function readStocks(market: Market): Promise<Omit<MarketPayload, 'i
   stocks = stocks.slice(0, 200);
   if (!stocks.length) throw new Error('종목 데이터를 받지 못했습니다.');
   return {
-    // closePrice is the regular-session value. Do not use overMarketPriceInfo (NXT/after-hours).
-    stocks: stocks.map((stock) => quoteFrom(stock, market)),
-    marketStatus: stocks[0].marketStatus,
-    asOf: stocks.reduce((latest, stock) => stock.localTradedAt > latest ? stock.localTradedAt : latest, stocks[0].localTradedAt),
-    source: '네이버 증권',
+    stocks: stocks.map((stock) => quoteFrom(stock, market, afterMarket)),
+    marketStatus: afterMarket && domestic(market) && stocks.some((stock) => stock.overMarketPriceInfo?.overMarketStatus === 'OPEN') ? 'AFTER' : stocks[0].marketStatus,
+    asOf: stocks.map((stock) => afterMarket && domestic(market) ? stock.overMarketPriceInfo?.localTradedAt ?? stock.localTradedAt : stock.localTradedAt).reduce((latest, time) => time > latest ? time : latest, stocks[0].localTradedAt),
+    source: afterMarket && domestic(market) ? '네이버 증권 · 장후 포함' : '네이버 증권',
   };
 }
 
@@ -200,7 +218,7 @@ export async function readFxMinutes(): Promise<MinuteSeries> {
   };
 }
 
-export async function readQuote(market: Market, code: string): Promise<Quote> {
+export async function readQuote(market: Market, code: string, afterMarket = false): Promise<Quote> {
   const root = domestic(market) ? 'https://m.stock.naver.com/api' : 'https://api.stock.naver.com';
   const stock = await naverJson<Stock>(`${root}/stock/${encodeURIComponent(code)}/basic`);
   if (!['stock', 'etf'].includes(stock.stockEndType)) throw new Error('주식 또는 ETF 종목이 아닙니다.');
@@ -212,7 +230,7 @@ export async function readQuote(market: Market, code: string): Promise<Quote> {
     const volume = await readForeignVolume(code);
     if (volume !== undefined) stock.accumulatedTradingVolume = volume;
   }
-  return quoteFrom(stock, market);
+  return quoteFrom(stock, market, afterMarket);
 }
 
 // Provider's genuine daily OHLC. Do not manufacture US minute candles from closes.

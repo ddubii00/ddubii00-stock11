@@ -42,6 +42,11 @@ a { color: inherit; text-decoration: none; }
 .session-badges i { width: 5px; height: 5px; background: #adb9b2; border-radius: 50%; }
 .session-badges .session-open { color: #14684f; }
 .session-open i { background: #17996b; }
+.krx-mode-buttons { display: flex; gap: 2px; }
+.krx-mode-buttons button { height: 17px; padding: 0 4px; border: 1px solid #cfdbd4; border-radius: 3px; color: #61766a; background: #fff; font-size: 10px; font-weight: 750; line-height: 1; }
+.krx-mode-buttons button.active { border-color: #14684f; color: #fff; background: #14684f; }
+.krx-mode-buttons button:hover { background: #edf6f1; color: #14684f; }
+.krx-mode-buttons button.active:hover { color: #fff; background: #14684f; }
 .header-indices { grid-area: indices; flex: 1; min-width: 0; display: grid; grid-template-columns: repeat(5, minmax(0, 1fr)); height: 100%; align-items: center; }
 .index-item { min-width: 0; display: grid; grid-template-columns: 1fr auto; gap: 0 4px; padding: 0 7px; border-left: 1px solid #e4e9e6; font-variant-numeric: tabular-nums; }
 .index-label { grid-column: 1/-1; color: #64756b; font-size: 12px; font-weight: 700; }

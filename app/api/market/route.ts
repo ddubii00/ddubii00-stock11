@@ -10,9 +10,10 @@ export async function GET(request: Request) {
   if (market !== 'KOSPI' && market !== 'KOSDAQ' && market !== 'NASDAQ' && market !== 'SP500' && market !== 'DOW') {
     return Response.json({ error: '지원하지 않는 시장입니다.' }, { status: 400 });
   }
+  const afterMarket = url.searchParams.get('after') === '1';
   try {
     const [stocks, indices] = await Promise.all([
-      readStocks(market), url.searchParams.get('indices') === '1' ? readIndices() : Promise.resolve([]),
+      readStocks(market, afterMarket), url.searchParams.get('indices') === '1' ? readIndices() : Promise.resolve([]),
     ]);
     return Response.json({ ...stocks, indices }, { headers: { 'Cache-Control': 'no-store' } });
   } catch (error) {

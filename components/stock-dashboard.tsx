@@ -29,15 +29,15 @@ const views = markets.flatMap((market) => [
   { value: `${market.toLowerCase()}-chart`, market, graph: true, label: `${marketLabel(market)} 차트` },
 ]);
 const watchViews = ([0, 1, 2, 3] as WatchlistId[]).flatMap((list) => [
-  { value: list === 0 ? 'watchlist' : `watchlist${list + 1}`, list, graph: false, label: list === 0 ? '관심종목' : `관심종목${list + 1}` },
-  { value: list === 0 ? 'watchlist-chart' : `watchlist${list + 1}-chart`, list, graph: true, label: list === 0 ? '관심종목 차트' : `관심종목${list + 1} 차트` },
+  { value: list === 0 ? 'watchlist' : `watchlist${list + 1}`, list, graph: false, label: list === 0 ? '관심' : `관심종목${list + 1}` },
+  { value: list === 0 ? 'watchlist-chart' : `watchlist${list + 1}-chart`, list, graph: true, label: list === 0 ? '관심 차트' : `관심종목${list + 1} 차트` },
 ]);
 const textScaleCycle: TextScale[] = [-1, 0, 1, 2, 3, 4, 6];
 const tone = (change: number) => change > 0 ? 'price-up' : change < 0 ? 'price-down' : 'price-flat';
 const formatted = (value: number, market: Market) => value.toLocaleString('en-US', {
   minimumFractionDigits: isUS(market) ? 2 : 0, maximumFractionDigits: isUS(market) ? 2 : 0,
 });
-const statusLabel = (status?: string) => !status ? '연결 중' : status === 'OPEN' ? '장중' : '장종료';
+const statusLabel = (status?: string) => !status ? '연결 중' : status === 'OPEN' ? '장중' : status === 'AFTER' ? '장후' : '장종료';
 const REFRESH_MS = 30_000;
 type LiveStatus = { state: string; subscribed: number; requested: number };
 
@@ -292,6 +292,7 @@ export function StockDashboard() {
   const [data, setData] = useState<Partial<Record<Market, MarketPayload>>>({});
   const [indices, setIndices] = useState<IndexQuote[]>([]);
   const [errors, setErrors] = useState<Partial<Record<Market, string>>>({});
+  const [krxMode, setKrxMode] = useState<'KRX' | 'KRX2'>('KRX');
   const [autoRefresh, setAutoRefresh] = useState(true);
   const [localTextScale, setLocalTextScale] = useState<TextScale>(1);
   const textScale = sync.enabled && (sync.phase === 'ready' || sync.phase === 'cached') ? sync.profile.settings.textScale : localTextScale;
@@ -376,7 +377,8 @@ export function StockDashboard() {
       const symbols = watchSymbols.split(','); let failed = 0;
       try {
         for (let offset = 0; offset < symbols.length; offset += 32) {
-          const response = await fetch(`${apiPath('/api/watchlist')}?symbols=${encodeURIComponent(symbols.slice(offset, offset + 32).join(','))}`, { signal: controller.signal });
+          const after = krxMode === 'KRX2' ? '&after=1' : '';
+          const response = await fetch(`${apiPath('/api/watchlist')}?symbols=${encodeURIComponent(symbols.slice(offset, offset + 32).join(','))}${after}`, { signal: controller.signal });
           if (!response.ok) throw new Error('관심종목 연결 재시도 중 · 마지막 수신값 유지');
           const result = await response.json() as { quotes: Record<string, Quote>; errors: Record<string, string> };
           if (controller.signal.aborted) return;
@@ -387,7 +389,7 @@ export function StockDashboard() {
       } catch (error) { if (!controller.signal.aborted) setWatchError(error instanceof Error ? error.message : '관심종목 연결 실패'); }
     })();
     return () => controller.abort();
-  }, [watchSymbols, now]);
+  }, [watchSymbols, now, krxMode]);
 
   useEffect(() => {
     const controller = new AbortController();
@@ -404,7 +406,8 @@ export function StockDashboard() {
     try {
       await Promise.all([...markets.map(async (market) => {
         try {
-          const response = await fetch(`${apiPath('/api/market')}?market=${market}${market === 'KOSPI' ? '&indices=1' : ''}`, { cache: 'no-store', signal: AbortSignal.timeout(15000) });
+          const after = krxMode === 'KRX2' && (market === 'KOSPI' || market === 'KOSDAQ') ? '&after=1' : '';
+          const response = await fetch(`${apiPath('/api/market')}?market=${market}${market === 'KOSPI' ? '&indices=1' : ''}${after}`, { cache: 'no-store', signal: AbortSignal.timeout(15000) });
           if (!response.ok) throw new Error('시세 연결 재시도 중 · 마지막 수신값 표시');
           const result = await response.json() as MarketPayload;
           if (!result.stocks?.length) throw new Error('시세 수신 대기');
@@ -427,7 +430,7 @@ export function StockDashboard() {
       setBusy(false);
       inFlight.current = false;
     }
-  }, []);
+  }, [krxMode]);
 
   useEffect(() => {
     void refresh();
@@ -464,7 +467,11 @@ export function StockDashboard() {
         {watchViews.map((view) => <TabsTrigger key={view.value} value={view.value}>{view.label}</TabsTrigger>)}
       </TabsList>
       <div className="session-badges">
-        <span className={data.KOSPI?.marketStatus === 'OPEN' ? 'session-open' : ''}><i />KRX {statusLabel(data.KOSPI?.marketStatus)}</span>
+        <div className="krx-mode-buttons" role="group" aria-label="한국 시장 시세 범위">
+          <button type="button" className={krxMode === 'KRX' ? 'active' : ''} onClick={() => setKrxMode('KRX')} title="정규장 15:30까지">KRX</button>
+          <button type="button" className={krxMode === 'KRX2' ? 'active' : ''} onClick={() => setKrxMode('KRX2')} title="장후 체결가 포함">KRX2</button>
+        </div>
+        <span className={data.KOSPI?.marketStatus === 'OPEN' || data.KOSPI?.marketStatus === 'AFTER' ? 'session-open' : ''}><i />{statusLabel(data.KOSPI?.marketStatus)}</span>
         <span className={data.NASDAQ?.marketStatus === 'OPEN' ? 'session-open' : ''}><i />미국 {statusLabel(data.NASDAQ?.marketStatus)}</span>
       </div>
       <div className="header-indices" aria-label="주요 시장 지수">
