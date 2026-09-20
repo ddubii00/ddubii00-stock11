@@ -1,4 +1,4 @@
-function number(value) { return Number(String(value ?? '').replaceAll(',', '')); }
+function number(value) { const text = String(value ?? '').replaceAll(',', '').trim(); return text ? Number(text) : Number.NaN; }
 
 function output1(body) {
   if (Array.isArray(body?.output1)) return body.output1[0] ?? {};
@@ -21,15 +21,17 @@ export function parseNxtFinalClose(body, code, tradeDate, previousCloseFallback,
     .sort((left, right) => right.hour.localeCompare(left.hour));
   const latest = rows[0];
   if (!latest) return undefined;
-  const summaryPreviousClose = number(output1(body)?.stck_prdy_clpr);
+  const summary = output1(body);
+  const summaryPreviousClose = number(summary?.stck_prdy_clpr);
   const previousClose = summaryPreviousClose > 0 ? summaryPreviousClose : number(previousCloseFallback);
   if (!Number.isFinite(previousClose) || previousClose <= 0) return undefined;
   const changePrice = latest.price - previousClose;
+  const volume = number(summary?.acml_vol);
   return {
     tradeDate,
     quote: {
       chartCode: code, price: latest.price, previousClose, changePrice, change: (changePrice / previousClose) * 100,
-      ...(Number.isFinite(number(latest.row?.acml_vol)) ? { volume: String(number(latest.row.acml_vol)) } : {}),
+      ...(Number.isFinite(volume) && volume >= 0 ? { volume: String(volume) } : {}),
       asOf: nxtAsOf(tradeDate, latest.hour), fetchedAt, marketStatus: 'CLOSE', priceSource: 'kis-nxt-close', priceSession: 'after',
     },
   };

@@ -2,7 +2,8 @@ import { createServer } from 'node:http';
 import { parseTrades, subscription } from './kis-protocol.mjs';
 import { multiBatches, multiCacheKey } from './kis-multi.mjs';
 import { createMarketCalendar } from './kis-market-calendar.mjs';
-import { parseRegularDailyClose } from './kis-daily-close.mjs';
+import { dailyRows, parseRegularDailyClose } from './kis-daily-close.mjs';
+import { parseRegularHistoricalClose } from './kis-regular-close.mjs';
 import { parseNxtFinalClose } from './kis-nxt-close.mjs';
 import { domesticQuotePlan } from './kis-domestic-routing.mjs';
 
@@ -31,6 +32,8 @@ const multiQuotePending = new Map();
 const afterFinalQuoteCache = new Map();
 const regularDailyCloseCache = new Map();
 const regularDailyClosePending = new Map();
+const regularHistoricalCloseCache = new Map();
+const regularHistoricalClosePending = new Map();
 const nxtFinalCloseCache = new Map();
 const nxtFinalClosePending = new Map();
 const latestTradeDateCache = new Map();
@@ -201,14 +204,89 @@ async function domesticRegularCloseQuotes(market, codes, scope, open, clock) {
   for (const value of values) if (value.status === 'fulfilled' && value.value.quote) quotes[value.value.code] = value.value.quote;
   return { quotes, cache: false, refreshMs: multiTtl(scope) };
 }
+async function readRegularHistoricalClose(market, code, tradeDate) {
+  const key = `${quoteKey(market, code)}:${tradeDate}`;
+  const cached = regularHistoricalCloseCache.get(key);
+  if (cached?.quote) return cached.quote;
+  if (cached?.retryAt && cached.retryAt > Date.now()) return undefined;
+  if (regularHistoricalClosePending.has(key)) return regularHistoricalClosePending.get(key);
+
+  const task = (async () => {
+    try {
+      const body = await kisGet('/uapi/domestic-stock/v1/quotations/inquire-time-dailychartprice', 'FHKST03010230', {
+        FID_COND_MRKT_DIV_CODE: 'J',
+        FID_INPUT_ISCD: code,
+        FID_INPUT_HOUR_1: '153000',
+        FID_INPUT_DATE_1: tradeDate,
+        FID_PW_DATA_INCU_YN: 'N',
+        FID_FAKE_TICK_INCU_YN: '',
+      }, market, code, 'regular-history');
+
+      const parsed = parseRegularHistoricalClose(body, code, tradeDate);
+      if (!parsed?.quote) {
+        regularHistoricalCloseCache.set(key, { retryAt: Date.now() + REGULAR_CLOSE_RETRY_MS });
+        return undefined;
+      }
+
+      regularHistoricalCloseCache.set(key, { tradeDate: parsed.tradeDate, quote: parsed.quote });
+      return parsed.quote;
+    } catch {
+      regularHistoricalCloseCache.set(key, { retryAt: Date.now() + REGULAR_CLOSE_RETRY_MS });
+      return undefined;
+    }
+  })();
+
+  regularHistoricalClosePending.set(key, task);
+  try { return await task; } finally { regularHistoricalClosePending.delete(key); }
+}
+
+async function domesticRegularHistoricalQuotes(market, codes, scope, open, clock) {
+  if (scope === 'background' || !codes.length) {
+    return { quotes: {}, cache: true, refreshMs: scope === 'background' ? backgroundRefreshMs : multiTtl(scope) };
+  }
+
+  // daily-price is used only to discover the latest KRX business date. Its
+  // stck_clpr is intentionally ignored because it can reflect the NXT final.
+  const tradeDate = await resolveLatestTradingDate(market, codes[0], open, clock);
+  if (!tradeDate) return { quotes: {}, cache: false, refreshMs: multiTtl(scope) };
+
+  const quotes = {};
+  const values = await Promise.allSettled(codes.map(async (code) => ({
+    code,
+    quote: await readRegularHistoricalClose(market, code, tradeDate),
+  })));
+  for (const value of values) {
+    if (value.status === 'fulfilled' && value.value.quote) quotes[value.value.code] = value.value.quote;
+  }
+  return { quotes, cache: false, refreshMs: multiTtl(scope) };
+}
 async function resolveLatestTradingDate(market, sampleCode, open, clock) {
   const cachedDate = latestTradeDateCache.get(market);
   if (cachedDate?.calendarDate === clock.date && cachedDate.tradeDate) return cachedDate.tradeDate;
-  await readRegularDailyClose(market, sampleCode, open, clock);
-  const entry = regularDailyCloseCache.get(quoteKey(market, sampleCode));
-  if (!entry?.tradeDate) return undefined;
-  latestTradeDateCache.set(market, { calendarDate: clock.date, tradeDate: entry.tradeDate });
-  return entry.tradeDate;
+
+  try {
+    const body = await kisGet('/uapi/domestic-stock/v1/quotations/inquire-daily-price', 'FHKST01010400', {
+      FID_COND_MRKT_DIV_CODE: 'J',
+      FID_INPUT_ISCD: sampleCode,
+      FID_PERIOD_DIV_CODE: 'D',
+      FID_ORG_ADJ_PRC: '0',
+    }, market, sampleCode, 'trade-date');
+
+    const tradeDate = dailyRows(body)
+      .map((row) => String(row?.stck_bsop_date ?? ''))
+      .filter((date) => /^\d{8}$/.test(date))
+      .sort((left, right) => right.localeCompare(left))[0];
+
+    if (!tradeDate) return undefined;
+    // After today's KRX close, never silently fall back to an older business
+    // date while KIS is still publishing today's history.
+    if (open && clock.minute >= 930 && tradeDate !== clock.date) return undefined;
+
+    latestTradeDateCache.set(market, { calendarDate: clock.date, tradeDate });
+    return tradeDate;
+  } catch {
+    return undefined;
+  }
 }
 async function readNxtFinalClose(market, code, tradeDate) {
   const key = `${quoteKey(market, code)}:${tradeDate}`;
@@ -257,7 +335,7 @@ async function domesticMultiQuotes(market, codes, requestedAfter, scope) {
   const clock = seoulClock();
   const open = await marketCalendar.isOpenTradingDay(clock.date);
   const plan = domesticQuotePlan({ session, open, minute: clock.minute });
-  if (plan.source === 'daily-close') return domesticRegularCloseQuotes(market, codes, scope, open, clock);
+  if (plan.source === 'daily-close') return domesticRegularHistoricalQuotes(market, codes, scope, open, clock);
   if (plan.source === 'nxt-close') return domesticNxtFinalQuotes(market, codes, scope, open, clock);
   const batches = multiBatches(codes, plan.marketCode);
   const canonical = batches.flatMap((batch) => batch.codes);
