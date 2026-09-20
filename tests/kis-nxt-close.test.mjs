@@ -5,7 +5,7 @@ import { domesticQuotePlan } from '../server/kis-domestic-routing.mjs';
 
 void test('NXT history retains the last real after-market trade rather than a closed-session current price', () => {
   const parsed = parseNxtFinalClose({
-    output1: { stck_prdy_clpr: '1745000' },
+    output1: { stck_prdy_clpr: '1745000', acml_vol: '987654' },
     output2: [
       { stck_bsop_date: '20260918', stck_cntg_hour: '170000', stck_prpr: '1835000' },
       { stck_bsop_date: '20260918', stck_cntg_hour: '195959', stck_prpr: '1849000', acml_vol: '123' },
@@ -15,6 +15,7 @@ void test('NXT history retains the last real after-market trade rather than a cl
   assert.equal(parsed?.quote.price, 1849000);
   assert.equal(parsed?.quote.priceSource, 'kis-nxt-close');
   assert.equal(parsed?.quote.priceSession, 'after');
+  assert.equal(parsed?.quote.volume, '987654');
   assert.equal(parsed?.quote.asOf, '2026-09-18T19:59:59+09:00');
 });
 
