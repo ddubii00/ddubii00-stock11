@@ -2,6 +2,9 @@ import type { Market, StockSelection } from './market-types';
 
 export const WATCHLIST_KEY = 'stock11.watchlist.v1';
 export const symbolKey = (item: { market: Market; chartCode: string }) => `${item.market}:${item.chartCode}`;
+export function preserveSavedName<T extends StockSelection, Q extends { name?: string; code?: string }>(item: T, quote: Q): Q & Pick<T, 'name' | 'code'> {
+  return { ...quote, name: item.name, code: item.code };
+}
 // Move to the target's position without mutating the saved list or losing metadata.
 export function reorderWatchlist<T extends { market: Market; chartCode: string }>(items: T[], source: string, target: string): T[] {
   const from = items.findIndex((item) => symbolKey(item) === source);

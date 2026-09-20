@@ -12,7 +12,7 @@ import { apiPath } from '@/lib/base-path';
 import { sessionFor } from '@/lib/chart-model';
 import { Sparkline, type LiveTick } from '@/components/stock-charts';
 import { WatchlistToolbar } from '@/components/watchlist-toolbar';
-import { reorderWatchlist, restoreWatchlist, symbolKey, WATCHLIST_KEY } from '@/lib/watchlist';
+import { preserveSavedName, reorderWatchlist, restoreWatchlist, symbolKey, WATCHLIST_KEY } from '@/lib/watchlist';
 import { stockUrl } from '@/lib/stock-links';
 import { useStockHighlights } from '@/hooks/use-stock-highlights';
 import { useServerProfile } from '@/hooks/use-server-profile';
@@ -326,7 +326,6 @@ export function StockDashboard() {
   const [provider, setProvider] = useState<'naver' | 'kis'>('naver');
   const [marketRefreshMs, setMarketRefreshMs] = useState(REFRESH_MS);
   const [watchRefreshMs, setWatchRefreshMs] = useState(REFRESH_MS);
-  const [watchTick, setWatchTick] = useState(0);
   const [indexSeries, setIndexSeries] = useState<Record<string, MinuteSeries>>({});
   const [localWatchlists, setLocalWatchlists] = useState<[StockSelection[], StockSelection[], StockSelection[], StockSelection[]]>([[], [], [], []]);
   const dataRef = useRef(data);
@@ -353,7 +352,7 @@ export function StockDashboard() {
   };
   const [watchLoaded, setWatchLoaded] = useState(false);
   const [storageError, setStorageError] = useState('');
-  const [watchQuotes, setWatchQuotes] = useState<Record<string, Quote>>({});
+  const [watchQuoteState, setWatchQuoteState] = useState<{ mode: 'KRX' | 'KRX2'; quotes: Record<string, Quote> }>({ mode: 'KRX', quotes: {} });
   const [watchError, setWatchError] = useState('');
   const inFlight = useRef(false);
   const refreshQueued = useRef(false);
@@ -392,27 +391,29 @@ export function StockDashboard() {
     catch { setStorageError('브라우저 저장 실패 · 이번 화면에서만 유지됩니다.'); }
   }, [localWatchlists, watchLoaded]);
   const activeWatch = watchViews.find((view) => view.value === tab);
-  const activeWatchValue = activeWatch?.value;
   const activeWatchItems = activeWatch ? watchlists[activeWatch.list] : [];
   const watchSymbols = activeWatchItems.map(symbolKey).filter((key, index, all) => all.indexOf(key) === index).join(',');
   useEffect(() => {
     if (!watchSymbols) return;
-    const controller = new AbortController();
-    void (async () => {
+    let stopped = false, timer: number | undefined, controller: AbortController | undefined;
+    const load = async () => {
+      controller = new AbortController();
       let failed = 0;
       try {
         const after = krxMode === 'KRX2' ? '&after=1' : '';
         const response = await fetch(`${apiPath('/api/watchlist')}?symbols=${encodeURIComponent(watchSymbols)}${after}`, { signal: controller.signal, cache: 'no-store' });
         if (!response.ok) throw new Error('관심종목 연결 재시도 중 · 마지막 수신값 유지');
         const result = await response.json() as { quotes: Record<string, Quote>; errors: Record<string, string> };
-        if (controller.signal.aborted) return;
-        setWatchQuotes((current) => ({ ...current, ...result.quotes }));
+        if (stopped || controller.signal.aborted) return;
+        setWatchQuoteState((current) => ({ mode: krxMode, quotes: current.mode === krxMode ? { ...current.quotes, ...result.quotes } : result.quotes }));
         failed += Object.keys(result.errors).length;
         setWatchError(failed ? `${failed}종목 시세 수신 실패 · 마지막 수신값 유지 / 미수신 종목은 위 목록에 표시` : '');
-      } catch (error) { if (!controller.signal.aborted) setWatchError(error instanceof Error ? error.message : '관심종목 연결 실패'); }
-    })();
-    return () => controller.abort();
-  }, [watchSymbols, watchTick, krxMode]);
+      } catch (error) { if (!stopped && !controller.signal.aborted) setWatchError(error instanceof Error ? error.message : '관심종목 연결 실패'); }
+      finally { if (!stopped && autoRefresh) timer = window.setTimeout(() => { void load(); }, watchRefreshMs); }
+    };
+    void load();
+    return () => { stopped = true; if (timer) window.clearTimeout(timer); controller?.abort(); };
+  }, [watchSymbols, krxMode, autoRefresh, watchRefreshMs]);
 
   useEffect(() => {
     const controller = new AbortController();
@@ -478,12 +479,6 @@ export function StockDashboard() {
     return () => { window.clearInterval(timer); document.removeEventListener('visibilitychange', onVisibility); };
   }, [autoRefresh, refresh, marketRefreshMs]);
 
-  useEffect(() => {
-    if (!autoRefresh || !activeWatchValue) return;
-    const timer = window.setInterval(() => { if (!document.hidden) setWatchTick((value) => value + 1); }, watchRefreshMs);
-    return () => window.clearInterval(timer);
-  }, [autoRefresh, activeWatchValue, watchRefreshMs]);
-
   const fullscreen = async () => {
     try {
       if (document.fullscreenElement) await document.exitFullscreen();
@@ -491,8 +486,12 @@ export function StockDashboard() {
     } catch { /* Fullscreen may be unavailable in an embedded preview. */ }
   };
   // Keep unreceived stocks visible and removable, without displaying a made-up price.
-  const savedQuotesFor = (list: WatchlistId): Quote[] => watchlists[list].map((item) => watchQuotes[symbolKey(item)] ?? {
-    ...item, pending: true, price: 0, previousClose: 0, change: 0, changePrice: 0, turnover: '—', volume: '—', asOf: '',
+  const savedQuotesFor = (list: WatchlistId): Quote[] => watchlists[list].map((item) => {
+    // Do not render the other mode's price while a newly selected source loads.
+    const received = watchQuoteState.mode === krxMode ? watchQuoteState.quotes[symbolKey(item)] : undefined;
+    return received ? preserveSavedName(item, received) : {
+      ...item, pending: true, price: 0, previousClose: 0, change: 0, changePrice: 0, turnover: '—', volume: '—', asOf: '',
+    };
   });
   const watchPayloadFor = (list: WatchlistId): MarketPayload => {
     const savedQuotes = savedQuotesFor(list);

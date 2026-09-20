@@ -3,6 +3,7 @@ import { parseTrades, subscription } from './kis-protocol.mjs';
 import { multiBatches, multiCacheKey } from './kis-multi.mjs';
 import { createMarketCalendar } from './kis-market-calendar.mjs';
 import { parseRegularDailyClose } from './kis-daily-close.mjs';
+import { parseNxtFinalClose } from './kis-nxt-close.mjs';
 import { domesticQuotePlan } from './kis-domestic-routing.mjs';
 
 const appKey = process.env.KIS_APP_KEY;
@@ -30,7 +31,11 @@ const multiQuotePending = new Map();
 const afterFinalQuoteCache = new Map();
 const regularDailyCloseCache = new Map();
 const regularDailyClosePending = new Map();
+const nxtFinalCloseCache = new Map();
+const nxtFinalClosePending = new Map();
+const latestTradeDateCache = new Map();
 const REGULAR_CLOSE_RETRY_MS = 30_000;
+const NXT_CLOSE_RETRY_MS = 30_000;
 const KIS_ORIGIN = process.env.KIS_ORIGIN || 'https://openapi.koreainvestment.com:9443';
 const QUOTE_TTL = 25_000;
 const watchRefreshMs = Math.max(500, Number(process.env.KIS_WATCHLIST_REFRESH_MS) || 2_000);
@@ -196,12 +201,64 @@ async function domesticRegularCloseQuotes(market, codes, scope, open, clock) {
   for (const value of values) if (value.status === 'fulfilled' && value.value.quote) quotes[value.value.code] = value.value.quote;
   return { quotes, cache: false, refreshMs: multiTtl(scope) };
 }
+async function resolveLatestTradingDate(market, sampleCode, open, clock) {
+  const cachedDate = latestTradeDateCache.get(market);
+  if (cachedDate?.calendarDate === clock.date && cachedDate.tradeDate) return cachedDate.tradeDate;
+  await readRegularDailyClose(market, sampleCode, open, clock);
+  const entry = regularDailyCloseCache.get(quoteKey(market, sampleCode));
+  if (!entry?.tradeDate) return undefined;
+  latestTradeDateCache.set(market, { calendarDate: clock.date, tradeDate: entry.tradeDate });
+  return entry.tradeDate;
+}
+async function readNxtFinalClose(market, code, tradeDate) {
+  const key = `${quoteKey(market, code)}:${tradeDate}`;
+  const cached = nxtFinalCloseCache.get(key);
+  if (cached?.quote) return cached.quote;
+  if (cached?.retryAt && cached.retryAt > Date.now()) return undefined;
+  if (nxtFinalClosePending.has(key)) return nxtFinalClosePending.get(key);
+  const task = (async () => {
+    try {
+      const body = await kisGet('/uapi/domestic-stock/v1/quotations/inquire-time-dailychartprice', 'FHKST03010230', {
+        FID_COND_MRKT_DIV_CODE: 'NX', FID_INPUT_ISCD: code, FID_INPUT_HOUR_1: '200000', FID_INPUT_DATE_1: tradeDate,
+        FID_PW_DATA_INCU_YN: 'N', FID_FAKE_TICK_INCU_YN: '',
+      }, market, code, 'nxt-close');
+      const regular = regularDailyCloseCache.get(quoteKey(market, code))?.quote;
+      const parsed = parseNxtFinalClose(body, code, tradeDate, regular?.previousClose);
+      if (!parsed?.quote) { nxtFinalCloseCache.set(key, { retryAt: Date.now() + NXT_CLOSE_RETRY_MS }); return undefined; }
+      nxtFinalCloseCache.set(key, { tradeDate: parsed.tradeDate, quote: parsed.quote });
+      return parsed.quote;
+    } catch {
+      nxtFinalCloseCache.set(key, { retryAt: Date.now() + NXT_CLOSE_RETRY_MS });
+      return undefined;
+    }
+  })();
+  nxtFinalClosePending.set(key, task);
+  try { return await task; } finally { nxtFinalClosePending.delete(key); }
+}
+async function domesticNxtFinalQuotes(market, codes, scope, open, clock) {
+  if (scope === 'background' || !codes.length) return { quotes: {}, cache: true, refreshMs: scope === 'background' ? backgroundRefreshMs : multiTtl(scope) };
+  const tradeDate = await resolveLatestTradingDate(market, codes[0], open, clock);
+  if (!tradeDate) return { quotes: {}, cache: false, refreshMs: multiTtl(scope) };
+  const quotes = {};
+  const work = [];
+  for (const code of codes) {
+    const key = `${quoteKey(market, code)}:${tradeDate}`;
+    const cached = nxtFinalCloseCache.get(key);
+    if (cached?.quote) quotes[code] = cached.quote;
+    else work.push(readNxtFinalClose(market, code, tradeDate));
+  }
+  // Naver's existing overMarketPriceInfo remains the immediate fallback while
+  // this per-symbol historical cache warms through the shared KIS queue.
+  if (work.length) void Promise.allSettled(work);
+  return { quotes, cache: false, refreshMs: multiTtl(scope) };
+}
 async function domesticMultiQuotes(market, codes, requestedAfter, scope) {
   const session = await marketCalendar.sessionFor(requestedAfter);
   const clock = seoulClock();
   const open = await marketCalendar.isOpenTradingDay(clock.date);
   const plan = domesticQuotePlan({ session, open, minute: clock.minute });
   if (plan.source === 'daily-close') return domesticRegularCloseQuotes(market, codes, scope, open, clock);
+  if (plan.source === 'nxt-close') return domesticNxtFinalQuotes(market, codes, scope, open, clock);
   const batches = multiBatches(codes, plan.marketCode);
   const canonical = batches.flatMap((batch) => batch.codes);
   const cacheKey = multiCacheKey(market, session, codes);

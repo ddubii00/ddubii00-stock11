@@ -19,7 +19,11 @@ export async function readKisQuoteResult(market: Market, codes: string[], afterM
   url.searchParams.set('scope', scope);
   if (afterMarket && domestic(market)) url.searchParams.set('after', '1');
   try {
-    const response = await fetch(url, { cache: 'no-store', signal: AbortSignal.timeout(8500) });
+    // Closed-session KRX uses one official daily-price request per visible
+    // symbol. Give that bounded queue time to finish instead of falling back
+    // to Naver's integrated close before the verified KRX close arrives.
+    const timeout = scope === 'watch' ? 45_000 : scope === 'visible' ? 14_000 : 8_500;
+    const response = await fetch(url, { cache: 'no-store', signal: AbortSignal.timeout(timeout) });
     if (!response.ok) return { quotes: {} };
     const payload = await response.json() as RelayPayload;
     return { quotes: payload.quotes ?? {}, source: payload.source, refreshMs: payload.refreshMs };

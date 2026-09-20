@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { parseSymbols, reorderWatchlist, restoreWatchlist, symbolKey } from '../lib/watchlist.ts';
+import { parseSymbols, preserveSavedName, reorderWatchlist, restoreWatchlist, symbolKey } from '../lib/watchlist.ts';
 import { makeChartModel } from '../lib/chart-model.ts';
 import { stockUrl } from '../lib/stock-links.ts';
 
@@ -17,6 +17,10 @@ test('watchlist persistence rejects corrupt entries and duplicates, and caps at 
   assert.deepEqual(restoreWatchlist(JSON.stringify([samsung, samsung, null, { ...samsung, market: 'invalid' }, { ...samsung, chartCode: '../bad' } ])), [samsung]);
   assert.equal(symbolKey(samsung), 'KOSPI:005930');
   assert.equal(restoreWatchlist(JSON.stringify(Array.from({ length: 250 }, (_, i) => ({ ...samsung, code: `S${i}`, chartCode: `S${i}` })))).length, 200);
+});
+test('KIS close updates preserve the saved stock name instead of replacing it with its code', () => {
+  const saved = { market: 'KOSPI', name: 'SK하이닉스', code: '000660', chartCode: '000660' };
+  assert.deepEqual(preserveSavedName(saved, { name: '000660', code: '000660', price: 1857000 }), { name: 'SK하이닉스', code: '000660', price: 1857000 });
 });
 test('NYSE, AMEX and S&P500 charts use US time and PC destinations', () => {
   for (const market of ['NYSE', 'AMEX', 'SP500']) {
