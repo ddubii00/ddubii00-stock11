@@ -20,7 +20,7 @@ KOSPI · KOSDAQ · NASDAQ · S&P500 구성 종목의 시가총액 상위 200종�
 
 모든 시장과 관심종목의 셀 배경은 **한 번 클릭하면 반투명 노란색**, **더블클릭하면 반투명 빨간색**, **색상이 있는 상태에서 한 번 더 클릭하면 해제**됩니다. 종목명 링크와 삭제 버튼은 배경색을 바꾸지 않습니다. 관심종목은 셀 배경을 다른 종목 셀로 드래그해 순서를 바꿉니다. 변경한 순서는 두 관심종목 탭에서 공유하며 저장 모드에 따라 Redis 또는 브라우저에 저장되어 새로고침 후에도 유지됩니다.
 
-관심종목 차트는 **KOSPI 차트와 동일한 실제 분봉 추세**입니다. 일봉 선택 UI는 없으며, 현재가·등락률과 분봉 선의 색은 전일 종가 대비입니다. 종목이 1~2개뿐이어도 일반 시장의 200종목 화면과 같은 셀 높이를 유지합니다. 국내는 09:00~15:30, 미국은 현지 09:30~16:00 축을 사용하고, KIS 틱은 현재가와 분봉 추세에 반영합니다. 각 종목의 통화·정규장 상태·데이터 날짜를 구분하고 장종료 시 정규장 최종가격을 유지합니다.
+관심종목 차트는 **KOSPI 차트와 동일한 실제 분봉 추세**입니다. 일봉 선택 UI는 없으며, 현재가·등락률과 분봉 선의 색은 전일 종가 대비입니다. 종목이 1~2개뿐이어도 일반 시장의 200종목 화면과 같은 셀 높이를 유지합니다. 국내는 09:00~15:30, 미국은 현지 09:30~16:00 축을 사용합니다. Oracle 국내 현재가는 KIS 멀티 REST, 분봉 이력은 네이버 실제 분봉을 사용하며 장종료 시 정규장 최종가격을 유지합니다.
 
 환율 미니 차트는 헤더와 같은 네이버 USD/KRW 고시환율을 한국 주식장 기준 **09:00–15:30 (한국시간)** 고정축으로 표시합니다. 외환시장 전체 거래시간을 나타내는 차트는 아닙니다. 같은 분의 마지막 고시값만 남기며, 09:00 이전·15:30 이후 값은 제외합니다. 현재 시각 이후는 빈 공간으로 유지하고 미수신 분은 만들지 않습니다. 30초마다 재조회하며 전 거래일 자료는 해당일의 장중 구간만 표시합니다.
 
@@ -32,7 +32,7 @@ Vercel은 표준 `redis`(node-redis)와 `REDIS_URL`을 사용합니다. Oracle D
 
 [설정·보안·동기화·Vercel/Oracle 배포·검증·롤백 안내](docs/redis-storage.md)를 참고하세요. 최초 로그인에서 Redis가 비어 있을 때만 **이 브라우저 기록 가져오기**를 명시적으로 선택할 수 있으며, 오래된 브라우저가 서버 기록을 자동으로 덮어쓰지 않습니다.
 
-차트와 관심종목 시세는 요청당 32종목, 서버 내부 동시 조회 4개로 제한합니다. 일부 시세/차트 실패 시 오류와 마지막 수신값을 표시합니다. S&P500은 네이버의 해당 지수 구성 종목 목록에서 상위 200개를 가져옵니다.
+차트 요청은 32종목 단위로 제한합니다. Oracle 국내 관심종목 현재가는 KIS 공식 멀티 REST의 30종목 batch로 처리하고, 일부 시세/차트 실패 시 오류와 마지막 수신값을 표시합니다. S&P500은 네이버의 해당 지수 구성 종목 목록에서 상위 200개를 가져옵니다.
 
 ## Vercel 배포
 
@@ -68,7 +68,9 @@ chmod 600 .env.oracle
 ```dotenv
 KIS_APP_KEY=발급받은_APP_KEY
 KIS_APP_SECRET=발급받은_APP_SECRET
-KIS_MAX_SUBSCRIPTIONS=40
+KIS_WATCHLIST_REFRESH_MS=2000
+KIS_VISIBLE_REFRESH_MS=3000
+KIS_BACKGROUND_REFRESH_MS=20000
 STOCK11_PORT=3011
 STOCK11_SYNC_PASSWORD=12자_이상의_개인용_비밀번호
 STOCK11_SYNC_ORIGIN=https://stock11.example.com
@@ -84,7 +86,7 @@ curl http://127.0.0.1:3011/api/runtime
 docker compose --env-file .env.oracle exec kis-relay node -e "fetch('http://127.0.0.1:8091/health').then(r=>r.text()).then(console.log)"
 ```
 
-정상 설정이면 health는 `{"status":"ok"}`, runtime은 `{"provider":"kis","refreshMs":30000}`을 반환합니다. 이는 앱 실행 확인이며 KIS 인증 성공을 의미하지는 않습니다. 장중 화면 하단에서 KIS 승인 구독 수를 확인하세요.
+정상 설정이면 health는 `{"status":"ok"}`, runtime은 `{"provider":"kis","marketRefreshMs":3000,"watchRefreshMs":2000}`을 반환합니다. 이는 앱 실행 확인이며 KIS 인증 성공을 의미하지는 않습니다.
 
 - `app`: 비관리자 사용자로 실행하는 Next.js standalone 서버. KIS 키를 받지 않습니다.
 - `stock11-profile`: 로그인 세션과 관심종목 기록을 담는 Oracle 내부 영구 volume입니다. 이미지 재빌드와 일반 `docker compose down` 뒤에도 유지됩니다. 기록을 보존하려면 `docker compose down -v`로 volume을 삭제하지 마세요.
@@ -94,7 +96,7 @@ docker compose --env-file .env.oracle exec kis-relay node -e "fetch('http://127.
 
 ### 외부 접속과 HTTPS
 
-웹앱은 기본적으로 서버의 `127.0.0.1:3011`에만 열립니다. 기존 HTTPS Nginx의 **Stock11 전용 호스트**에 `deploy/nginx-stock11.conf.example`을 참고해 프록시를 추가하세요. KIS SSE 경로는 버퍼링을 끄고 긴 타임아웃을 사용해야 합니다. 현재 설정은 도메인 루트(`/`) 기준이며 다른 앱의 하위 경로를 임의로 덮어쓰지 않습니다.
+웹앱은 기본적으로 서버의 `127.0.0.1:3011`에만 열립니다. 기존 HTTPS Nginx의 **Stock11 전용 호스트**에 `deploy/nginx-stock11.conf.example`을 참고해 프록시를 추가하세요. 국내 가격은 요청/응답 REST 갱신이므로 국내용 SSE 프록시 설정은 필요하지 않습니다. 현재 설정은 도메인 루트(`/`) 기준이며 다른 앱의 하위 경로를 임의로 덮어쓰지 않습니다.
 
 도메인·인증서·Oracle 방화벽/보안 목록은 실제 서버에 맞게 별도로 설정해야 합니다. Docker 포트를 인터넷에 직접 공개하지 않는 구성을 권장합니다.
 
@@ -108,30 +110,29 @@ docker compose --env-file .env.oracle up -d
 
 충돌이 있으면 내용을 확인하세요. 기존 서버 파일을 강제 초기화하지 않습니다. `.env.oracle`은 Git에 포함되지 않아 유지됩니다.
 
-## KIS 실시간 방식과 세션 분리
+## KIS 국내 멀티 REST와 세션 분리
 
-Oracle에서는 KIS relay만 App Key/Secret과 access token을 보관합니다. 앱 컨테이너는 사설 Docker 네트워크의 relay `/quotes`·`/stream`만 호출하며, 키·시크릿·bearer token을 받거나 로그에 남기지 않습니다. relay는 access token을 재사용하고 국내 현재가 REST를 세션별 25초 캐시·동일 요청 deduplication·전역 queue로 제한합니다. 기본 간격은 350ms, 동시성은 2이며 `KIS_REST_MIN_INTERVAL_MS`, `KIS_REST_MAX_CONCURRENCY`로 조절합니다.
+Oracle에서는 KIS relay만 App Key/Secret과 access token을 보관합니다. 앱 컨테이너는 사설 Docker 네트워크의 relay `/quotes`만 호출하며, 키·시크릿·bearer token을 받거나 로그에 남기지 않습니다. 국내 현재가는 공식 `intstock-multprice` (`FHKST11300006`)를 최대 30종목씩 호출합니다. relay는 코드 집합을 정렬한 cache key와 in-flight deduplication으로 여러 브라우저의 같은 batch를 한 번만 upstream 호출합니다. 관심종목은 기본 2초, 현재 화면은 3초, 200종목 background cache는 20초 주기이며 환경변수로 조절합니다. 전역 queue 기본 간격은 350ms, 동시성은 2입니다.
 
-- **KRX**는 KIS 현재가 REST의 `J`(KRX)만 사용하며, 정규장 15:30 가격을 `regular` 캐시에 따로 보관합니다. 예를 들어 15:30의 1,857,000원은 장후 가격으로 바뀌지 않습니다.
-- **KRX2**는 KIS 현재가 REST의 `UN`(KRX/NXT 통합)만 사용하며 `after` 캐시에 보관합니다. 16:00–20:00의 실제 통합 체결값(예: 1,849,000원)을 KRX 정규장 캐시와 섞지 않습니다. KIS가 실패하거나 지원하지 않는 종목만 네이버 장후 필드를 명시적 fallback으로 사용합니다.
-- 국내 정규장 `H0STCNT0`, 통합 체결 `H0UNCNT0`, 미국 `HDFSCNT0`은 한 개의 공유 WebSocket으로 받고 `/api/live` SSE를 통해 화면에 전달합니다. relay의 기본 동시 구독 상한은 40이며 여러 브라우저가 하나의 upstream을 공유합니다.
-- 과거 분봉 이력은 현재 제공처가 보장하는 네이버 실제 분봉을 사용하되, KIS 실시간 수신분은 같은 세션에만 이어 그립니다. KIS 권한·실계정으로 검증하지 못한 REST/실시간 응답을 성공으로 표시하지 않습니다.
+- **KRX**는 멀티 REST의 `J`(KRX)만 사용하며, 15:30 이후에도 KRX 정규장 종가만 표시합니다.
+- **KRX2**는 정규장에는 `J`, NXT 세션에는 `NX`를 사용합니다. 예를 들어 KRX 1,857,000원과 KRX2 1,849,000원은 별도의 session으로 섞이지 않습니다. KIS가 실패하거나 일부 종목을 누락할 때만 네이버 장후 필드를 fallback으로 사용합니다.
+- 국내 KOSPI/KOSDAQ/관심종목 가격 갱신은 WebSocket·SSE를 사용하지 않습니다. `/api/live`는 미국 시장 호환용으로만 유지합니다.
+- 과거 분봉 이력은 제공처가 보장하는 네이버 실제 분봉을 사용합니다. KIS 권한·실계정으로 검증하지 못한 REST 응답을 성공으로 표시하지 않습니다.
 
-- 기본 동시 구독 상한은 **40종목**입니다. 여러 접속자도 이 한도를 공유합니다. 표시 종목을 거래소별로 구독하고, 나머지 종목과 지수는 30초 fallback 갱신을 유지합니다. **200종목 모두 KIS 실시간이라고 표시하지 않습니다.** 화면 하단에 승인된 구독 수를 표시합니다.
-- KIS가 응답한 행은 `KIS 우선`, 나머지는 `네이버 보완`으로 응답 source를 구분합니다. 가상 가격이나 임의 분봉은 만들지 않습니다.
+- KIS가 응답한 행은 `kis-multi-rest`, cache 행은 `kis-cache`, 누락 행은 `naver-fallback`으로 구분합니다. 가상 가격이나 임의 분봉은 만들지 않습니다.
 - KIS 접속 실패 시 연결 대기를 표시하고 네이버 갱신을 유지합니다. NASDAQ은 KIS 해외시세 이용 권한과 지연 정책의 영향을 받습니다. 코드 미지원 종목도 기본 갱신을 유지합니다.
 - 실제 KIS 인증과 실체결 검증에는 사용자 키가 필요합니다. 서버 설정 파일을 준비한 것과 실제 서버 배포/실체결 확인은 별개입니다.
 - 공개 운영 전 시세 제공처의 이용·재배포 조건을 확인하고, 필요하면 Nginx 등에서 접근을 제한하세요.
 
-공식 참고: [KIS 국내 예제](https://github.com/koreainvestment/open-trading-api/blob/main/legacy/Sample01/kis_domstk_ws.py), [국내/해외 WebSocket 예제](https://github.com/koreainvestment/open-trading-api/blob/main/legacy/websocket/python/ws_domestic%2Boverseas_stock.py).
+공식 참고: [KIS 국내 시세 예제](https://github.com/koreainvestment/open-trading-api/blob/main/examples_user/domestic_stock/domestic_stock_functions.py).
 
 ### KIS 공식 근거
 
-KIS의 [국내 주식현재가 예제](https://github.com/koreainvestment/open-trading-api/blob/main/examples_llm/domestic_stock/inquire_price/inquire_price.py)는 `inquire-price`, `FHKST01010100` 및 `J`(KRX)·`NX`(NXT)·`UN`(통합) 구분을 명시합니다. 이 앱은 그 구분을 가격 캐시 키와 API 응답의 `priceSession`에도 그대로 보존합니다. 실제 운영 키로 KIS 응답 필드를 검증하기 전에는 NXT/통합 가격을 정규장 가격으로 대체하지 않습니다.
+KIS의 [공식 국내 예제](https://github.com/koreainvestment/open-trading-api/blob/main/examples_user/domestic_stock/domestic_stock_functions.py)는 `intstock-multprice`, `FHKST11300006`, `FID_COND_MRKT_DIV_CODE_1..30` + `FID_INPUT_ISCD_1..30`의 30종목 batch를 명시합니다. 이 앱은 정규장 `J`, NXT 세션 `NX`를 `priceSession`에 보존하고, KRX 정규장값을 장후값으로 대체하지 않습니다.
 
 ### Oracle KIS 진단
 
-relay `/health`는 Docker 사설망에서만 열리며 키·토큰 없이 WebSocket 상태, 구독 수, REST 성공/실패·rate-limit 수, queue 길이, 정규장/장후 캐시 수만 반환합니다. KRX와 KRX2 결과는 아래처럼 개별 quote의 `priceSource`, `priceSession`, `asOf`, `fetchedAt`, `volume`을 비교합니다.
+relay `/health`는 Docker 사설망에서만 열리며 키·토큰 없이 멀티 REST 성공/실패·rate-limit 수, queue 길이, cache 수와 마지막 성공시각만 반환합니다. KRX와 KRX2 결과는 아래처럼 개별 quote의 `priceSource`, `priceSession`, `asOf`, `fetchedAt`, `volume`을 비교합니다.
 
 ```sh
 curl -sS 'http://127.0.0.1:3011/stock11-7/api/market?market=KOSPI' | jq '.stocks[] | select(.chartCode=="000660") | {price,priceSource,priceSession,asOf,fetchedAt,volume}'
@@ -140,7 +141,7 @@ curl -sS 'http://127.0.0.1:3011/stock11-7/api/market?market=KOSPI' | jq '[.stock
 docker compose --env-file .env.oracle exec kis-relay node -e "fetch('http://127.0.0.1:8091/health').then(r=>r.json()).then(console.log)"
 ```
 
-`/health`의 `restRequests`, `restSuccess`, `restFailures`, `restRateLimited`, `restRetries`, `restQueueDepth`, `regularCacheSize`, `afterCacheSize`와 `recentErrors`만으로 안전하게 릴레이 상태를 확인할 수 있습니다. `KIS_RELAY_DEBUG_FIELDS=1`은 응답의 필드명과 지정 숫자 필드만 로그에 남기며, App Key·Secret·토큰·approval key는 어떤 경우에도 출력하지 않습니다.
+`/health`의 `restRequests`, `restSuccess`, `restFailures`, `restRateLimited`, `restRetries`, `restQueueDepth`, `multiRestRequests`, `multiRestSuccess`, `multiRestFailures`, `lastSuccessAt`, `cacheSize`와 `recentErrors`만으로 안전하게 릴레이 상태를 확인할 수 있습니다. `KIS_RELAY_DEBUG_FIELDS=1`은 응답의 필드명과 지정 숫자 필드만 로그에 남기며, App Key·Secret·토큰·approval key는 어떤 경우에도 출력하지 않습니다.
 
 ## 로컬 개발과 검증
 
@@ -156,6 +157,6 @@ npm run test:runtime
 
 디스크 공간이 부족한 로컬 환경에서는 `STOCK11_LOW_DISK_BUILD=1 npm run build`로 Webpack 디스크 캐시를 생략할 수 있습니다. 결과물 저장 공간은 여전히 필요하며 기본 배포 캐시는 변경하지 않습니다.
 
-`test:runtime`은 임시 포트의 실제 standalone 서버로 Vercel/Oracle 모드, 정적 파일 응답, SSE 전달·해제·오류를 검사합니다. SSE 테스트는 명시적인 테스트 데이터만 사용하며 실제 KIS 키를 사용하거나 사용자 미리보기에 데이터를 넣지 않습니다.
+`test:runtime`은 임시 포트의 실제 standalone 서버로 Vercel/Oracle 모드, 정적 파일 응답, 미국 시장 SSE 전달·해제·오류를 검사합니다. 테스트는 명시적인 테스트 데이터만 사용하며 실제 KIS 키를 사용하거나 사용자 미리보기에 데이터를 넣지 않습니다.
 
 Docker 없이 Oracle에서 실행하려면 `npm run build:standalone` 후 `.next/standalone/server.js`를 Node.js 서비스로 실행하고, KIS 중계기는 `npm run kis:relay`로 별도 상주 실행할 수 있습니다. 앱 환경은 `STOCK11_DATA_PROVIDER=kis`, `KIS_RELAY_URL=http://127.0.0.1:8091`로 설정하고 중계기 환경에만 키를 전달하세요. 서비스 재시작과 HTTPS 프록시는 별도로 구성합니다.

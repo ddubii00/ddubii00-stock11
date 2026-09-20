@@ -27,3 +27,11 @@ test('KRX2 keeps KRX live data during the regular session before integrated trad
   assert.equal(quote.priceSession, 'regular');
   assert.equal(quote.priceSource, 'kis-live');
 });
+
+test('a partial KIS batch keeps only its missing symbol on the Naver fallback', () => {
+  const naverSecond = { ...naverRegular, chartCode: '005930', code: '005930', name: '삼성전자', price: 70000 };
+  const [first, second] = mergeKisQuotes([naverRegular, naverSecond], { '000660': unified }, true);
+  assert.equal(first.priceSource, 'kis-rest');
+  assert.equal(second.priceSource, 'naver-fallback');
+  assert.equal(second.price, 70000);
+});

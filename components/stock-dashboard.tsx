@@ -40,6 +40,7 @@ const formatted = (value: number, market: Market) => value.toLocaleString('en-US
 const statusLabel = (status?: string) => !status ? '연결 중' : status === 'OPEN' ? '장중' : status === 'AFTER' ? '장후' : '장종료';
 const REFRESH_MS = 30_000;
 type LiveStatus = { state: string; subscribed: number; requested: number };
+const domesticMarket = (market: Market) => market === 'KOSPI' || market === 'KOSDAQ';
 
 function Change({ value }: { value: number }) {
   return <span className={`change-rate ${tone(value)}`}>
@@ -102,7 +103,7 @@ export function Board({ market, graph, payload, largeText, textScale = largeText
     // then only its separate integrated tick stream.  Match the quote's
     // explicit session rather than treating every KRX2 value as after-market.
     const replacesFallback = !quote.priceSource || quote.priceSource === 'naver-fallback';
-    return tick && provider === 'kis' && canApplyTick && (tick.priceSession ?? 'regular') === (quote.priceSession ?? 'regular') && (replacesFallback || !Number.isFinite(quoteTime) || Date.parse(tick.asOf) >= quoteTime)
+    return tick && provider === 'kis' && !domesticMarket(quote.market ?? market) && canApplyTick && (tick.priceSession ?? 'regular') === (quote.priceSession ?? 'regular') && (replacesFallback || !Number.isFinite(quoteTime) || Date.parse(tick.asOf) >= quoteTime)
       ? { ...quote, price: tick.price, change: tick.change, changePrice: tick.changePrice, previousClose: tick.previousClose, asOf: tick.asOf, ...(tick.volume ? { volume: tick.volume } : {}), priceSource: 'kis-live' } : quote;
   });
   const layout = fitBoard(size.width, size.height, graph, largeText, quotes.length || 200, textScale);
@@ -154,7 +155,7 @@ export function Board({ market, graph, payload, largeText, textScale = largeText
   const codes = graph ? visible.map((quote) => symbolKey({ market: quote.market ?? market, chartCode: quote.chartCode })).join(',') : '';
   const liveCodes = visible.filter((quote) => {
     const status = quote.marketStatus ?? payload?.marketStatus;
-    return status === 'OPEN' || (afterMarket && status === 'AFTER');
+    return !domesticMarket(quote.market ?? market) && (status === 'OPEN' || (afterMarket && status === 'AFTER'));
   }).map((quote) => symbolKey({ market: quote.market ?? market, chartCode: quote.chartCode })).join(',');
 
   useEffect(() => {
@@ -247,7 +248,7 @@ export function Board({ market, graph, payload, largeText, textScale = largeText
               <div className="graph-card" data-highlighted={isHighlighted(key)} data-highlight-color={selected.get(key)}>
               <Button variant="ghost" className="chart-highlight-toggle" aria-label={`${quote.name} ${highlightLabel}`} title={highlightHint} aria-pressed={isHighlighted(key)} onClick={(event) => highlightClick(event, key)} onDoubleClick={() => highlightDoubleClick(key)} />
               <div className="graph-identity"><a href={stockUrl(quote, exchange)} target="_blank" rel="noopener noreferrer" aria-label={`${quote.name} 네이버 증권 새 탭에서 보기`}><strong title={quote.name}>{quote.name}</strong></a><span>{offset + index + 1} · {quote.code}{watch ? ' · 분봉' : ''}</span></div>
-              <Sparkline series={series[key]} tick={provider === 'kis' && autoRefresh && (afterMarket ? quote.marketStatus === 'AFTER' : quote.marketStatus === 'OPEN') ? liveTicks[quote.chartCode] : undefined} name={quote.name} now={now} />
+              <Sparkline series={series[key]} tick={provider === 'kis' && !domesticMarket(exchange) && autoRefresh && (afterMarket ? quote.marketStatus === 'AFTER' : quote.marketStatus === 'OPEN') ? liveTicks[quote.chartCode] : undefined} name={quote.name} now={now} />
               <div className="graph-price"><Price quote={quote} market={exchange} />{quote.pending ? <span className="price-flat">수신 대기</span> : <Change value={quote.change} />}</div>
               {chartErrors[key] && <span className="chart-error">{chartErrors[key]}</span>}
               </div>
@@ -281,7 +282,8 @@ export function Board({ market, graph, payload, largeText, textScale = largeText
     </div>
     <footer className="board-footer">
       <p className={error ? 'connection-error' : ''}>{error ?? (payload ? `${watch ? '관심종목 · 한국/미국 현지 정규장' : `${statusLabel(payload.marketStatus)} · ${payload.marketStatus === 'OPEN' ? '정규장 현재가' : '정규장 최종가격'} · ${asOf}${isUS(market) ? ' ET' : ''}`} · ${layout.columns}열${graph ? ' · 실제 분봉 · 전일 기준선 · Y축 자동' : ''}` : '네이버 증권 연결 중')}
-        {provider === 'kis' && autoRefresh && payload?.marketStatus === 'OPEN' && <span> · {liveStatus.state === 'connected' && liveStatus.subscribed > 0 ? `KIS 구독 ${liveStatus.subscribed}/${liveStatus.requested || visible.length} · 미구독 30초` : 'KIS 연결 대기 · 30초 갱신'}</span>}
+        {provider === 'kis' && autoRefresh && quotes.some((quote) => domesticMarket(quote.market ?? market)) && <span> · KIS REST · {quotes.filter((quote) => domesticMarket(quote.market ?? market)).length}종목 · {watch ? '2' : '3'}초 갱신</span>}
+        {provider === 'kis' && autoRefresh && !quotes.some((quote) => domesticMarket(quote.market ?? market)) && payload?.marketStatus === 'OPEN' && <span> · {liveStatus.state === 'connected' && liveStatus.subscribed > 0 ? `KIS 구독 ${liveStatus.subscribed}/${liveStatus.requested || visible.length} · 미구독 30초` : 'KIS 연결 대기 · 30초 갱신'}</span>}
       </p>
       <Pagination className="board-pagination" aria-label={`${market} 종목 페이지`}><PaginationContent>
         <PaginationItem><Button variant="ghost" size="icon" disabled={currentPage === 0} onClick={() => setPage(currentPage - 1)} aria-label="이전 종목"><ChevronLeft /></Button></PaginationItem>
@@ -322,6 +324,9 @@ export function StockDashboard() {
   const [now, setNow] = useState(0);
   const [busy, setBusy] = useState(false);
   const [provider, setProvider] = useState<'naver' | 'kis'>('naver');
+  const [marketRefreshMs, setMarketRefreshMs] = useState(REFRESH_MS);
+  const [watchRefreshMs, setWatchRefreshMs] = useState(REFRESH_MS);
+  const [watchTick, setWatchTick] = useState(0);
   const [indexSeries, setIndexSeries] = useState<Record<string, MinuteSeries>>({});
   const [localWatchlists, setLocalWatchlists] = useState<[StockSelection[], StockSelection[], StockSelection[], StockSelection[]]>([[], [], [], []]);
   const dataRef = useRef(data);
@@ -386,32 +391,38 @@ export function StockDashboard() {
     // eslint-disable-next-line react/react-compiler -- Surface a real external storage failure to the user.
     catch { setStorageError('브라우저 저장 실패 · 이번 화면에서만 유지됩니다.'); }
   }, [localWatchlists, watchLoaded]);
-  const watchSymbols = watchlists.flat().map(symbolKey).filter((key, index, all) => all.indexOf(key) === index).join(',');
+  const activeWatch = watchViews.find((view) => view.value === tab);
+  const activeWatchValue = activeWatch?.value;
+  const activeWatchItems = activeWatch ? watchlists[activeWatch.list] : [];
+  const watchSymbols = activeWatchItems.map(symbolKey).filter((key, index, all) => all.indexOf(key) === index).join(',');
   useEffect(() => {
     if (!watchSymbols) return;
     const controller = new AbortController();
     void (async () => {
-      const symbols = watchSymbols.split(','); let failed = 0;
+      let failed = 0;
       try {
-        for (let offset = 0; offset < symbols.length; offset += 32) {
-          const after = krxMode === 'KRX2' ? '&after=1' : '';
-          const response = await fetch(`${apiPath('/api/watchlist')}?symbols=${encodeURIComponent(symbols.slice(offset, offset + 32).join(','))}${after}`, { signal: controller.signal });
-          if (!response.ok) throw new Error('관심종목 연결 재시도 중 · 마지막 수신값 유지');
-          const result = await response.json() as { quotes: Record<string, Quote>; errors: Record<string, string> };
-          if (controller.signal.aborted) return;
-          setWatchQuotes((current) => ({ ...current, ...result.quotes }));
-          failed += Object.keys(result.errors).length;
-        }
+        const after = krxMode === 'KRX2' ? '&after=1' : '';
+        const response = await fetch(`${apiPath('/api/watchlist')}?symbols=${encodeURIComponent(watchSymbols)}${after}`, { signal: controller.signal, cache: 'no-store' });
+        if (!response.ok) throw new Error('관심종목 연결 재시도 중 · 마지막 수신값 유지');
+        const result = await response.json() as { quotes: Record<string, Quote>; errors: Record<string, string> };
+        if (controller.signal.aborted) return;
+        setWatchQuotes((current) => ({ ...current, ...result.quotes }));
+        failed += Object.keys(result.errors).length;
         setWatchError(failed ? `${failed}종목 시세 수신 실패 · 마지막 수신값 유지 / 미수신 종목은 위 목록에 표시` : '');
       } catch (error) { if (!controller.signal.aborted) setWatchError(error instanceof Error ? error.message : '관심종목 연결 실패'); }
     })();
     return () => controller.abort();
-  }, [watchSymbols, now, krxMode]);
+  }, [watchSymbols, watchTick, krxMode]);
 
   useEffect(() => {
     const controller = new AbortController();
-    void fetch(apiPath('/api/runtime'), { signal: controller.signal }).then((response) => response.json() as Promise<{ provider: string }>).then((config) => {
-      if (!controller.signal.aborted) setProvider(config.provider === 'kis' ? 'kis' : 'naver');
+    void fetch(apiPath('/api/runtime'), { signal: controller.signal }).then((response) => response.json() as Promise<{ provider: string; marketRefreshMs?: number; watchRefreshMs?: number }>).then((config) => {
+      if (!controller.signal.aborted) {
+        const kis = config.provider === 'kis';
+        setProvider(kis ? 'kis' : 'naver');
+        setMarketRefreshMs(kis && Number.isFinite(config.marketRefreshMs) ? config.marketRefreshMs! : REFRESH_MS);
+        setWatchRefreshMs(kis && Number.isFinite(config.watchRefreshMs) ? config.watchRefreshMs! : REFRESH_MS);
+      }
     }).catch(() => { /* The default 30-second provider remains available. */ });
     return () => controller.abort();
   }, []);
@@ -461,11 +472,17 @@ export function StockDashboard() {
   useEffect(() => {
     void refresh();
     if (!autoRefresh) return;
-    const timer = window.setInterval(() => { if (!document.hidden) void refresh(); }, REFRESH_MS);
+    const timer = window.setInterval(() => { if (!document.hidden) void refresh(); }, marketRefreshMs);
     const onVisibility = () => { if (!document.hidden) void refresh(); };
     document.addEventListener('visibilitychange', onVisibility);
     return () => { window.clearInterval(timer); document.removeEventListener('visibilitychange', onVisibility); };
-  }, [autoRefresh, refresh]);
+  }, [autoRefresh, refresh, marketRefreshMs]);
+
+  useEffect(() => {
+    if (!autoRefresh || !activeWatchValue) return;
+    const timer = window.setInterval(() => { if (!document.hidden) setWatchTick((value) => value + 1); }, watchRefreshMs);
+    return () => window.clearInterval(timer);
+  }, [autoRefresh, activeWatchValue, watchRefreshMs]);
 
   const fullscreen = async () => {
     try {
@@ -515,7 +532,7 @@ export function StockDashboard() {
       </div>
       <div className="header-actions">
         <ProfileLogin sync={sync} localImport={{ type: 'import', watchlist: localWatchlists[0], watchlists: localWatchlists, highlights: [...localHighlights], largeText: localTextScale > 0, textScale: localTextScale }} />
-        <span className="refresh-status" title={provider === 'kis' ? 'KIS 체결 수신 · 연결 상태와 구독 수는 하단 표시 · 미구독 종목과 지수는 30초 갱신' : '시세와 분봉을 30초마다 갱신합니다.'}><i className={autoRefresh ? 'on' : ''} />{autoRefresh ? provider === 'kis' ? 'KIS' : '30초' : '멈춤'}</span>
+        <span className="refresh-status" title={provider === 'kis' ? '국내 시세는 KIS 멀티 REST 공유 캐시로 갱신합니다.' : '시세와 분봉을 30초마다 갱신합니다.'}><i className={autoRefresh ? 'on' : ''} />{autoRefresh ? provider === 'kis' ? 'KIS REST' : '30초' : '멈춤'}</span>
         <Button variant="ghost" size="icon" disabled={busy} onClick={() => void refresh()} aria-label="지금 새로고침" title="지금 새로고침"><RefreshCw className={busy ? 'refreshing' : ''} /></Button>
         <Button variant="ghost" size="icon" onClick={() => setAutoRefresh((value) => !value)} aria-label={autoRefresh ? '자동 갱신 멈춤' : '자동 갱신 시작'} title={autoRefresh ? '자동 갱신 멈춤' : '자동 갱신 시작'}>{autoRefresh ? <Pause /> : <Play />}</Button>
         <Button variant="ghost" size="icon" onClick={() => void fullscreen()} aria-label="전체 화면" title="전체 화면"><Expand /></Button>

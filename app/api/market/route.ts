@@ -6,7 +6,7 @@ export const dynamic = 'force-dynamic';
 export const runtime = 'nodejs';
 export const maxDuration = 30;
 
-const priorityLimit = Math.max(1, Math.min(40, Number(process.env.KIS_REST_PRIORITY_LIMIT) || 16));
+const priorityLimit = Math.max(1, Math.min(30, Number(process.env.KIS_REST_PRIORITY_LIMIT) || 30));
 function priorityCodes(stocks: Quote[], visible: string | null, active: boolean) {
   const known = new Set(stocks.map((quote) => quote.chartCode));
   const requested = [...new Set((visible ?? '').split(',').filter((code) => /^[A-Za-z0-9.^-]{1,24}$/.test(code) && known.has(code)))];
@@ -29,8 +29,13 @@ export async function GET(request: Request) {
     // KIS REST is shared by every market, watchlist and browser. Prefer the
     // board actually on screen; do not issue four simultaneous 40-code bursts.
     const codes = priorityCodes(stocks.stocks, url.searchParams.get('visible'), url.searchParams.get('priority') === 'active');
-    const kis = await readKisQuotes(market, codes, afterMarket);
+    const kis = await readKisQuotes(market, codes, afterMarket, 'visible');
     const merged = mergeKisQuotes(stocks.stocks, kis, afterMarket);
+    // Keep all 200 domestic symbols warm without making the active response
+    // wait for seven batches. The relay canonicalizes and shares this work.
+    if (kisEnabled() && (market === 'KOSPI' || market === 'KOSDAQ')) {
+      void readKisQuotes(market, stocks.stocks.map((quote) => quote.chartCode), afterMarket, 'background');
+    }
     const usedKis = Object.values(kis).some((quote) => quote.priceSession === (afterMarket ? 'after' : 'regular'));
     return Response.json({ ...stocks, stocks: merged, indices, source: usedKis && kisEnabled() ? `KIS 우선 · ${stocks.source} 보완` : stocks.source }, { headers: { 'Cache-Control': 'no-store' } });
   } catch (error) {

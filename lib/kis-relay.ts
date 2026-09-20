@@ -1,7 +1,8 @@
 import type { Market, Quote } from './market-types';
 
-type RelayQuote = Pick<Quote, 'chartCode' | 'price' | 'previousClose' | 'change' | 'changePrice' | 'asOf' | 'fetchedAt' | 'marketStatus' | 'volume' | 'priceSource' | 'priceSession'>;
-type RelayPayload = { quotes?: Record<string, RelayQuote>; source?: string };
+type RelayQuote = Pick<Quote, 'chartCode' | 'price' | 'previousClose' | 'change' | 'changePrice' | 'asOf' | 'fetchedAt' | 'marketStatus' | 'volume' | 'priceSource' | 'priceSession'> & { name?: string };
+type RelayPayload = { quotes?: Record<string, RelayQuote>; source?: string; refreshMs?: number };
+export type KisQuoteResult = { quotes: Record<string, RelayQuote>; source?: string; refreshMs?: number };
 
 export const kisEnabled = () => process.env.VERCEL !== '1' && process.env.STOCK11_DATA_PROVIDER === 'kis';
 const domestic = (market: Market) => market === 'KOSPI' || market === 'KOSDAQ';
@@ -10,20 +11,23 @@ const validCode = (code: string) => /^[A-Za-z0-9.^-]{1,24}$/.test(code);
 // The application never receives an App Key, secret, or bearer token.  The
 // private Docker relay owns all KIS authentication and is intentionally the
 // only process allowed to make a KIS REST call.
-export async function readKisQuotes(market: Market, codes: string[], afterMarket: boolean): Promise<Record<string, RelayQuote>> {
-  if (!kisEnabled() || !codes.length || codes.length > 40 || codes.some((code) => !validCode(code))) return {};
-  // KIS domestic REST supports J (regular KRX) and UN (unified KRX/NXT).  The
-  // relay can still return its WebSocket cache for overseas symbols.
+export async function readKisQuoteResult(market: Market, codes: string[], afterMarket: boolean, scope: 'watch' | 'visible' | 'background' = 'visible'): Promise<KisQuoteResult> {
+  if (!kisEnabled() || !codes.length || codes.length > 200 || codes.some((code) => !validCode(code))) return { quotes: {} };
   const url = new URL('/quotes', process.env.KIS_RELAY_URL || 'http://127.0.0.1:8091');
   url.searchParams.set('market', market);
   url.searchParams.set('codes', codes.join(','));
+  url.searchParams.set('scope', scope);
   if (afterMarket && domestic(market)) url.searchParams.set('after', '1');
   try {
     const response = await fetch(url, { cache: 'no-store', signal: AbortSignal.timeout(8500) });
-    if (!response.ok) return {};
+    if (!response.ok) return { quotes: {} };
     const payload = await response.json() as RelayPayload;
-    return payload.quotes ?? {};
-  } catch { return {}; }
+    return { quotes: payload.quotes ?? {}, source: payload.source, refreshMs: payload.refreshMs };
+  } catch { return { quotes: {} }; }
+}
+
+export async function readKisQuotes(market: Market, codes: string[], afterMarket: boolean, scope: 'watch' | 'visible' | 'background' = 'visible'): Promise<Record<string, RelayQuote>> {
+  return (await readKisQuoteResult(market, codes, afterMarket, scope)).quotes;
 }
 
 export function mergeKisQuotes(fallback: Quote[], kis: Record<string, RelayQuote>, afterMarket: boolean): Quote[] {
