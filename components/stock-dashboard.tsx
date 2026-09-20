@@ -20,6 +20,7 @@ import { ProfileLogin } from '@/components/profile-login';
 import type { HighlightColor } from '@/lib/stock-highlights';
 import { profileWatchlists, type TextScale, type WatchlistId } from '@/lib/profile';
 import type { IndexQuote, Market, MarketPayload, MinuteSeries, Quote, StockSelection } from '@/lib/market-types';
+import type { CoreSignal } from '@/lib/core-signal';
 
 const markets: Market[] = ['KOSPI', 'KOSDAQ', 'NASDAQ', 'SP500'];
 const marketLabel = (market: Market) => market === 'SP500' ? 'S&P500' : market;
@@ -54,13 +55,13 @@ function Price({ quote, market }: { quote: Quote; market: Market }) {
   return <strong className={`current-price ${tone(quote.change)}`}>{isUS(market) ? '$' : ''}{formatted(quote.price, market)}</strong>;
 }
 
-export function Board({ market, graph, payload, largeText, textScale = largeText ? 1 : 0, autoRefresh, error, now, provider, afterMarket = false, watch = false, onRemove, onReorder, highlighted, onHighlight }: {
+export function Board({ market, graph, payload, largeText, textScale = largeText ? 1 : 0, autoRefresh, error, now, provider, afterMarket = false, watch = false, onRemove, onReorder, highlighted, onHighlight, watchLabel, signals }: {
   market: Market; graph: boolean; payload?: MarketPayload; largeText: boolean; textScale?: TextScale;
   autoRefresh: boolean; error?: string; now: number; provider: 'naver' | 'kis';
   afterMarket?: boolean;
   watch?: boolean; onRemove?: (quote: Quote) => void;
   onReorder?: (source: string, target: string) => void;
-  highlighted?: ReadonlyMap<string, HighlightColor>; onHighlight?: (key: string, color?: HighlightColor) => void;
+  highlighted?: ReadonlyMap<string, HighlightColor>; onHighlight?: (key: string, color?: HighlightColor) => void; watchLabel?: string; signals?: Record<string, CoreSignal>;
 }) {
   const [localHighlights, setLocalHighlights] = useState<Map<string, HighlightColor>>(new Map());
   const selected = highlighted ?? localHighlights;
@@ -247,7 +248,7 @@ export function Board({ market, graph, payload, largeText, textScale = largeText
             return <div className={`graph-slot ${watch ? 'watch-slot' : ''}`} key={key} data-drop-target={dropTarget === key} {...dropEvents(key)} style={{ gridColumn: Math.floor(index / layout.rows) + 1, gridRow: index % layout.rows + 1 }}>
               <div className="graph-card" data-highlighted={isHighlighted(key)} data-highlight-color={selected.get(key)}>
               <Button variant="ghost" className="chart-highlight-toggle" aria-label={`${quote.name} ${highlightLabel}`} title={highlightHint} aria-pressed={isHighlighted(key)} onClick={(event) => highlightClick(event, key)} onDoubleClick={() => highlightDoubleClick(key)} />
-              <div className="graph-identity"><a href={stockUrl(quote, exchange)} target="_blank" rel="noopener noreferrer" aria-label={`${quote.name} 네이버 증권 새 탭에서 보기`}><strong title={quote.name}>{quote.name}</strong></a><span>{offset + index + 1} · {quote.code}{watch ? ' · 분봉' : ''}</span></div>
+              <div className="graph-identity"><a href={stockUrl(quote, exchange)} target="_blank" rel="noopener noreferrer" aria-label={`${quote.name} 네이버 증권 새 탭에서 보기`}><strong title={quote.name}>{quote.name}</strong></a>{watchLabel && <span className="watch-category-tag">{watchLabel}</span>}{signals?.[key] && <span className={`core-signal ${signals[key].action.toLowerCase()}`}>{signals[key].action === 'PARTIAL_BUY' ? '부분매수' : signals[key].action === 'PARTIAL_SELL' ? '부분매도' : '관망'} {signals[key].percentage}%</span>}<span>{offset + index + 1} · {quote.code}{watch ? ' · 분봉' : ''}</span></div>
               <Sparkline series={series[key]} tick={provider === 'kis' && !domesticMarket(exchange) && autoRefresh && (afterMarket ? quote.marketStatus === 'AFTER' : quote.marketStatus === 'OPEN') ? liveTicks[quote.chartCode] : undefined} name={quote.name} now={now} />
               <div className="graph-price"><Price quote={quote} market={exchange} />{quote.pending ? <span className="price-flat">수신 대기</span> : <Change value={quote.change} />}</div>
               {chartErrors[key] && <span className="chart-error">{chartErrors[key]}</span>}
@@ -270,7 +271,7 @@ export function Board({ market, graph, payload, largeText, textScale = largeText
                   if (!(event.target as Element).closest('a, button')) highlightDoubleClick(key);
                 }}>
                 <TableCell className="rank"><Button variant="ghost" className="rank-highlight-toggle" aria-label={`${quote.name} ${highlightLabel}`} title={highlightHint} aria-pressed={isHighlighted(key)} onClick={(event) => highlightClick(event, key)} onDoubleClick={() => highlightDoubleClick(key)}>{offset + columnIndex * layout.rows + index + 1}</Button></TableCell>
-                <TableCell className="stock-name" title={`${quote.name} (${quote.code}) · ${quote.market} ${statusLabel(quote.marketStatus)} · ${quote.asOf} · 거래대금 ${quote.turnover}`}><a href={stockUrl(quote, quote.market ?? market)} target="_blank" rel="noopener noreferrer"><strong>{quote.name}</strong></a>{watch && onRemove && <Button variant="ghost" size="icon" className="stock-remove" aria-label={`${quote.name} 관심종목 삭제`} title="관심종목 삭제" onClick={() => onRemove(quote)}><X /></Button>}</TableCell>
+                <TableCell className="stock-name" title={`${quote.name} (${quote.code}) · ${quote.market} ${statusLabel(quote.marketStatus)} · ${quote.asOf} · 거래대금 ${quote.turnover}`}><a href={stockUrl(quote, quote.market ?? market)} target="_blank" rel="noopener noreferrer"><strong>{quote.name}</strong></a>{watchLabel && <span className="watch-category-tag">{watchLabel}</span>}{signals?.[key] && <span className={`core-signal ${signals[key].action.toLowerCase()}`}>{signals[key].action === 'PARTIAL_BUY' ? '부분매수' : signals[key].action === 'PARTIAL_SELL' ? '부분매도' : '관망'} {signals[key].percentage}%</span>}{watch && onRemove && <Button variant="ghost" size="icon" className="stock-remove" aria-label={`${quote.name} 관심종목 삭제`} title="관심종목 삭제" onClick={() => onRemove(quote)}><X /></Button>}</TableCell>
                 <TableCell><Price quote={quote} market={quote.market ?? market} /></TableCell>
                 <TableCell>{quote.pending ? <span className="price-flat">—</span> : <Change value={quote.change} />}</TableCell>
                 {watch && <TableCell className="volume-cell">{quote.pending ? '—' : quote.volume ?? '—'}</TableCell>}
@@ -354,6 +355,7 @@ export function StockDashboard() {
   const [storageError, setStorageError] = useState('');
   const [watchQuoteState, setWatchQuoteState] = useState<{ mode: 'KRX' | 'KRX2'; quotes: Record<string, Quote> }>({ mode: 'KRX', quotes: {} });
   const [watchError, setWatchError] = useState('');
+  const [watchSignals, setWatchSignals] = useState<Record<string, CoreSignal>>({});
   const inFlight = useRef(false);
   const refreshQueued = useRef(false);
   const krxModeRef = useRef(krxMode);
@@ -414,6 +416,13 @@ export function StockDashboard() {
     void load();
     return () => { stopped = true; if (timer) window.clearTimeout(timer); controller?.abort(); };
   }, [watchSymbols, krxMode, autoRefresh, watchRefreshMs]);
+
+  useEffect(() => {
+    if (!watchSymbols) { setWatchSignals({}); return; }
+    const controller = new AbortController();
+    void fetch(`${apiPath('/api/analyze')}?symbols=${encodeURIComponent(watchSymbols)}`, { signal: controller.signal, cache: 'no-store' }).then((response) => response.ok ? response.json() as Promise<{ signals: Record<string, CoreSignal> }> : Promise.reject(new Error('분석 대기'))).then((result) => { if (!controller.signal.aborted) setWatchSignals(result.signals); }).catch(() => { if (!controller.signal.aborted) setWatchSignals({}); });
+    return () => controller.abort();
+  }, [watchSymbols, now]);
 
   useEffect(() => {
     const controller = new AbortController();
@@ -545,7 +554,7 @@ export function StockDashboard() {
       </TabsContent>)}
       {watchViews.map((view) => <TabsContent key={view.value} value={view.value} className="market-panel watch-panel">
         <WatchlistToolbar items={watchlists[view.list]} onChange={(items) => setWatchlist(items, view.list)} disabled={sync.enabled && sync.phase !== 'ready'} storageError={sync.enabled ? sync.phase !== 'ready' ? '상단 로그인 후 관심종목을 불러오세요.' : '' : storageError} />
-        <Board market="KOSPI" graph={view.graph} highlighted={highlighted} onHighlight={onHighlight} watch onReorder={(source, target) => reorderWatch(source, target, view.list)} onRemove={(quote) => removeWatch(quote, view.list)} payload={watchPayloadFor(view.list)} largeText={largeText} textScale={textScale} autoRefresh={autoRefresh} error={watchlists[view.list].length ? watchError || (savedQuotesFor(view.list).length ? undefined : '관심종목 시세 수신 중…') : sync.enabled && sync.phase !== 'ready' ? '상단 로그인 후 서버 기록을 불러오세요.' : undefined} now={now} provider={provider} afterMarket={krxMode === 'KRX2'} />
+        <Board market="KOSPI" graph={view.graph} highlighted={highlighted} onHighlight={onHighlight} watch watchLabel={view.list === 0 ? '1. 롱 보유' : undefined} signals={view.list === 0 ? watchSignals : undefined} onReorder={(source, target) => reorderWatch(source, target, view.list)} onRemove={(quote) => removeWatch(quote, view.list)} payload={watchPayloadFor(view.list)} largeText={largeText} textScale={textScale} autoRefresh={autoRefresh} error={watchlists[view.list].length ? watchError || (savedQuotesFor(view.list).length ? undefined : '관심종목 시세 수신 중…') : sync.enabled && sync.phase !== 'ready' ? '상단 로그인 후 서버 기록을 불러오세요.' : undefined} now={now} provider={provider} afterMarket={krxMode === 'KRX2'} />
       </TabsContent>)}
     </Tabs>
   </main>;
