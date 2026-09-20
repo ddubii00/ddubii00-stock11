@@ -2,6 +2,8 @@ import { createServer } from 'node:http';
 import { parseTrades, subscription } from './kis-protocol.mjs';
 import { multiBatches, multiCacheKey } from './kis-multi.mjs';
 import { createMarketCalendar } from './kis-market-calendar.mjs';
+import { parseRegularDailyClose } from './kis-daily-close.mjs';
+import { domesticQuotePlan } from './kis-domestic-routing.mjs';
 
 const appKey = process.env.KIS_APP_KEY;
 const appSecret = process.env.KIS_APP_SECRET;
@@ -26,6 +28,9 @@ const multiQuotePending = new Map();
 // This is intentionally separate from the short TTL cache. A valid NX final
 // must survive a blank post-close response without ever borrowing a J price.
 const afterFinalQuoteCache = new Map();
+const regularDailyCloseCache = new Map();
+const regularDailyClosePending = new Map();
+const REGULAR_CLOSE_RETRY_MS = 30_000;
 const KIS_ORIGIN = process.env.KIS_ORIGIN || 'https://openapi.koreainvestment.com:9443';
 const QUOTE_TTL = 25_000;
 const watchRefreshMs = Math.max(500, Number(process.env.KIS_WATCHLIST_REFRESH_MS) || 2_000);
@@ -152,9 +157,52 @@ const marketCalendar = createMarketCalendar({
     }, 'KOSPI', `calendar:${date}`, 'calendar');
   },
 });
+async function readRegularDailyClose(market, code, open, clock) {
+  const key = quoteKey(market, code);
+  // After 15:30 on an open day today's official KRX daily close is required.
+  // Before the opening bell and on closed days the latest trading row is valid.
+  const requireToday = open && clock.minute >= 930;
+  const cached = regularDailyCloseCache.get(key);
+  if (cached?.quote && (!requireToday || cached.tradeDate === clock.date)) return cached.quote;
+  if (cached?.retryAt && cached.retryAt > Date.now()) return undefined;
+  if (regularDailyClosePending.has(key)) return regularDailyClosePending.get(key);
+  const task = (async () => {
+    try {
+      const body = await kisGet('/uapi/domestic-stock/v1/quotations/inquire-daily-price', 'FHKST01010400', {
+        FID_COND_MRKT_DIV_CODE: 'J', FID_INPUT_ISCD: code, FID_PERIOD_DIV_CODE: 'D', FID_ORG_ADJ_PRC: '0',
+      }, market, code, 'regular-close');
+      const parsed = parseRegularDailyClose(body, code);
+      if (!parsed || (requireToday && parsed.tradeDate !== clock.date)) {
+        // Never label yesterday's row as today's KRX close. Preserve any older
+        // cache but return undefined so the verified Naver regular fallback wins.
+        regularDailyCloseCache.set(key, { ...(cached?.quote ? cached : {}), retryAt: Date.now() + REGULAR_CLOSE_RETRY_MS });
+        return undefined;
+      }
+      regularDailyCloseCache.set(key, { tradeDate: parsed.tradeDate, quote: parsed.quote });
+      return parsed.quote;
+    } catch {
+      regularDailyCloseCache.set(key, { ...(cached?.quote ? cached : {}), retryAt: Date.now() + REGULAR_CLOSE_RETRY_MS });
+      return undefined;
+    }
+  })();
+  regularDailyClosePending.set(key, task);
+  try { return await task; } finally { regularDailyClosePending.delete(key); }
+}
+async function domesticRegularCloseQuotes(market, codes, scope, open, clock) {
+  // Do not create 200 separate history calls while merely warming background.
+  if (scope === 'background') return { quotes: {}, cache: true, refreshMs: backgroundRefreshMs };
+  const quotes = {};
+  const values = await Promise.allSettled(codes.map(async (code) => ({ code, quote: await readRegularDailyClose(market, code, open, clock) })));
+  for (const value of values) if (value.status === 'fulfilled' && value.value.quote) quotes[value.value.code] = value.value.quote;
+  return { quotes, cache: false, refreshMs: multiTtl(scope) };
+}
 async function domesticMultiQuotes(market, codes, requestedAfter, scope) {
   const session = await marketCalendar.sessionFor(requestedAfter);
-  const batches = multiBatches(codes, session === 'after' ? 'NX' : 'J');
+  const clock = seoulClock();
+  const open = await marketCalendar.isOpenTradingDay(clock.date);
+  const plan = domesticQuotePlan({ session, open, minute: clock.minute });
+  if (plan.source === 'daily-close') return domesticRegularCloseQuotes(market, codes, scope, open, clock);
+  const batches = multiBatches(codes, plan.marketCode);
   const canonical = batches.flatMap((batch) => batch.codes);
   const cacheKey = multiCacheKey(market, session, codes);
   const ttl = multiTtl(scope);
