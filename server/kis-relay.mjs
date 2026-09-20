@@ -1,6 +1,7 @@
 import { createServer } from 'node:http';
 import { parseTrades, subscription } from './kis-protocol.mjs';
 import { multiBatches, multiCacheKey } from './kis-multi.mjs';
+import { createMarketCalendar } from './kis-market-calendar.mjs';
 
 const appKey = process.env.KIS_APP_KEY;
 const appSecret = process.env.KIS_APP_SECRET;
@@ -22,6 +23,9 @@ const regularCloseCache = new Map();
 const afterSessionCache = new Map();
 const multiQuoteCache = new Map();
 const multiQuotePending = new Map();
+// This is intentionally separate from the short TTL cache. A valid NX final
+// must survive a blank post-close response without ever borrowing a J price.
+const afterFinalQuoteCache = new Map();
 const KIS_ORIGIN = process.env.KIS_ORIGIN || 'https://openapi.koreainvestment.com:9443';
 const QUOTE_TTL = 25_000;
 const watchRefreshMs = Math.max(500, Number(process.env.KIS_WATCHLIST_REFRESH_MS) || 2_000);
@@ -65,7 +69,6 @@ function multiQuote(row, market, session) {
 }
 function seoulParts() { return new Intl.DateTimeFormat('en-CA', { timeZone: 'Asia/Seoul', year: 'numeric', month: '2-digit', day: '2-digit', hour: '2-digit', minute: '2-digit', hourCycle: 'h23' }).formatToParts(new Date()).reduce((out, part) => ({ ...out, [part.type]: part.value }), {}); }
 function seoulClock() { const part = seoulParts(); return { date: `${part.year}${part.month}${part.day}`, minute: Number(part.hour) * 60 + Number(part.minute) }; }
-function sessionFor(requestedAfter) { const { minute } = seoulClock(); if (!requestedAfter) return 'regular'; return minute >= 960 ? 'after' : 'regular'; }
 function reportRestError({ market, code, session, status, body, timeout }) {
   diagnostics.restFailures++;
   if (status === 429 || body?.msg_cd === 'EGW00201') diagnostics.restRateLimited++;
@@ -140,8 +143,17 @@ async function kisGet(path, trId, params, market, code, session) {
     throw lastError ?? new Error('KIS REST unavailable');
   });
 }
+const marketCalendar = createMarketCalendar({
+  clock: seoulClock,
+  fetchHoliday: (date) => {
+    if (!appKey || !appSecret) throw new Error('KIS calendar unconfigured');
+    return kisGet('/uapi/domestic-stock/v1/quotations/chk-holiday', 'CTCA0903R', {
+      BASS_DT: date, CTX_AREA_FK: '', CTX_AREA_NK: '',
+    }, 'KOSPI', `calendar:${date}`, 'calendar');
+  },
+});
 async function domesticMultiQuotes(market, codes, requestedAfter, scope) {
-  const session = sessionFor(requestedAfter);
+  const session = await marketCalendar.sessionFor(requestedAfter);
   const batches = multiBatches(codes, session === 'after' ? 'NX' : 'J');
   const canonical = batches.flatMap((batch) => batch.codes);
   const cacheKey = multiCacheKey(market, session, codes);
@@ -166,10 +178,21 @@ async function domesticMultiQuotes(market, codes, requestedAfter, scope) {
       }
       diagnostics.multiRestSuccess++;
       diagnostics.lastSuccessAt = new Date().toISOString();
+      // A partial after-market reply may omit a symbol. Preserve a previously
+      // validated NX final only for that missing NX symbol; never substitute J.
+      if (session === 'after') {
+        const previous = afterFinalQuoteCache.get(cacheKey)?.quotes ?? {};
+        for (const code of canonical) if (!quotes[code] && previous[code]) quotes[code] = { ...previous[code], priceSource: 'kis-cache', priceSession: 'after' };
+        if (Object.keys(quotes).length) afterFinalQuoteCache.set(cacheKey, { quotes: { ...quotes }, fetchedAt: Date.now() });
+      }
       multiQuoteCache.set(cacheKey, { quotes, fetchedAt: Date.now() });
       return { quotes, cache: false, refreshMs: ttl };
     } catch (error) {
       diagnostics.multiRestFailures++;
+      if (session === 'after') {
+        const previous = afterFinalQuoteCache.get(cacheKey);
+        if (previous?.quotes && Object.keys(previous.quotes).length) return { quotes: previous.quotes, cache: true, refreshMs: ttl };
+      }
       throw error;
     }
   })();
@@ -285,14 +308,15 @@ const server = createServer(async (request, response) => {
   const url = new URL(request.url || '/', 'http://127.0.0.1');
   if (url.pathname === '/health') {
     response.writeHead(200, { 'content-type': 'application/json' });
-    response.end(JSON.stringify({ state, configured: Boolean(appKey && appSecret), restQueueDepth: restQueue.length, restRequests: diagnostics.restRequests, restSuccess: diagnostics.restSuccess, restFailures: diagnostics.restFailures, restRateLimited: diagnostics.restRateLimited, restRetries: diagnostics.restRetries, multiRestRequests: diagnostics.multiRestRequests, multiRestSuccess: diagnostics.multiRestSuccess, multiRestFailures: diagnostics.multiRestFailures, lastSuccessAt: diagnostics.lastSuccessAt || undefined, cacheSize: multiQuoteCache.size, regularCacheSize: regularCloseCache.size, afterCacheSize: afterSessionCache.size, recentErrors: [...diagnostics.lastError.values()].slice(-12).map((entry) => JSON.parse(entry)) })); return;
+    const calendar = marketCalendar.diagnostics();
+    response.end(JSON.stringify({ state, configured: Boolean(appKey && appSecret), restQueueDepth: restQueue.length, restRequests: diagnostics.restRequests, restSuccess: diagnostics.restSuccess, restFailures: diagnostics.restFailures, restRateLimited: diagnostics.restRateLimited, restRetries: diagnostics.restRetries, multiRestRequests: diagnostics.multiRestRequests, multiRestSuccess: diagnostics.multiRestSuccess, multiRestFailures: diagnostics.multiRestFailures, lastSuccessAt: diagnostics.lastSuccessAt || undefined, cacheSize: multiQuoteCache.size, regularCacheSize: regularCloseCache.size, afterCacheSize: afterSessionCache.size, marketCalendarDate: calendar.date ?? seoulClock().date, marketCalendarOpen: calendar.open ?? null, recentErrors: [...diagnostics.lastError.values()].slice(-12).map((entry) => JSON.parse(entry)) })); return;
   }
   const market = url.searchParams.get('market');
   const codes = [...new Set((url.searchParams.get('codes') || '').split(',').filter(Boolean))];
   const after = url.searchParams.get('after') === '1';
   const scope = ['watch', 'visible', 'background'].includes(url.searchParams.get('scope')) ? url.searchParams.get('scope') : 'visible';
   if (request.method === 'GET' && url.pathname === '/quotes' && ['KOSPI', 'KOSDAQ', 'NASDAQ', 'NYSE', 'AMEX'].includes(market) && codes.length && codes.length <= 200 && codes.every((code) => /^[A-Za-z0-9.^-]{1,24}$/.test(code))) {
-    const session = domestic(market) ? sessionFor(after) : 'regular';
+    const session = domestic(market) ? await marketCalendar.sessionFor(after) : 'regular';
     const quotes = {}, errors = {};
     let refreshMs = multiTtl(scope);
     if (domestic(market)) {
