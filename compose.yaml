@@ -16,8 +16,8 @@ services:
     environment:
       STOCK11_DATA_PROVIDER: kis
       KIS_RELAY_URL: http://kis-relay:8091
-      STOCK11_KIS_VISIBLE_REFRESH_MS: ${KIS_VISIBLE_REFRESH_MS:-3000}
-      STOCK11_KIS_WATCHLIST_REFRESH_MS: ${KIS_WATCHLIST_REFRESH_MS:-2000}
+      STOCK11_KIS_VISIBLE_REFRESH_MS: 3000
+      STOCK11_KIS_WATCHLIST_REFRESH_MS: 3000
       STOCK11_PROFILE_STORE: sqlite
       STOCK11_SQLITE_PATH: /app/data/stock11-profile.sqlite
       STOCK11_SYNC_ENABLED: ${STOCK11_SYNC_ENABLED:-true}
@@ -40,15 +40,14 @@ services:
     environment:
       KIS_APP_KEY: ${KIS_APP_KEY:?Set KIS_APP_KEY in .env.oracle}
       KIS_APP_SECRET: ${KIS_APP_SECRET:?Set KIS_APP_SECRET in .env.oracle}
-      KIS_MAX_SUBSCRIPTIONS: ${KIS_MAX_SUBSCRIPTIONS:-40}
       KIS_REST_MIN_INTERVAL_MS: ${KIS_REST_MIN_INTERVAL_MS:-350}
       KIS_REST_MAX_CONCURRENCY: ${KIS_REST_MAX_CONCURRENCY:-2}
-      KIS_WATCHLIST_REFRESH_MS: ${KIS_WATCHLIST_REFRESH_MS:-2000}
-      KIS_VISIBLE_REFRESH_MS: ${KIS_VISIBLE_REFRESH_MS:-3000}
+      KIS_WATCHLIST_REFRESH_MS: 3000
+      KIS_VISIBLE_REFRESH_MS: 3000
       KIS_BACKGROUND_REFRESH_MS: ${KIS_BACKGROUND_REFRESH_MS:-20000}
       KIS_RELAY_HOST: 0.0.0.0
       KIS_RELAY_PORT: 8091
-    # No published port: only the app container can reach this service.
+    # No published port: only the app container can reach this REST-only relay.
     read_only: true
     security_opt:
       - no-new-privileges:true
