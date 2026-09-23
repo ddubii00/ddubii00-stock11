@@ -8,16 +8,26 @@ export const maxDuration = 30;
 
 type RelayMarket = 'KOSPI' | 'KOSDAQ' | 'NASDAQ' | 'NYSE' | 'AMEX';
 const relayMarkets = new Set<RelayMarket>(['KOSPI', 'KOSDAQ', 'NASDAQ', 'NYSE', 'AMEX']);
-const priorityLimit = Math.max(1, Math.min(30, Number(process.env.KIS_REST_PRIORITY_LIMIT) || 30));
 
-function priorityCodes(stocks: Quote[], visible: string | null, active: boolean) {
+// Domestic KOSPI/KOSDAQ uses the KIS 30-symbol multi-price REST endpoint.
+// The relay already batches larger lists into official 30-symbol chunks, so
+// the active domestic board can request all 200 rows.
+const overseasPriorityLimit = Math.max(1, Math.min(30, Number(process.env.KIS_REST_PRIORITY_LIMIT) || 30));
+
+function requestedCodes(stocks: Quote[], market: string, visible: string | null, active: boolean) {
+  if (!active) return [];
+
+  if (market === 'KOSPI' || market === 'KOSDAQ') {
+    return [...new Set(stocks.map((quote) => quote.chartCode))].slice(0, 200);
+  }
+
   const known = new Set(stocks.map((quote) => quote.chartCode));
-  const requested = [...new Set((visible ?? '').split(',').filter((code) =>
+  const visibleCodes = [...new Set((visible ?? '').split(',').filter((code) =>
     /^[A-Za-z0-9.^-]{1,24}$/.test(code) && known.has(code)
   ))];
 
-  return (requested.length ? requested : active ? stocks.map((quote) => quote.chartCode) : [])
-    .slice(0, priorityLimit);
+  return (visibleCodes.length ? visibleCodes : stocks.map((quote) => quote.chartCode))
+    .slice(0, overseasPriorityLimit);
 }
 
 function relayMarketFor(quote: Quote, pageMarket: string): RelayMarket | undefined {
@@ -64,8 +74,9 @@ export async function GET(request: Request) {
       url.searchParams.get('indices') === '1' ? readIndices() : Promise.resolve([]),
     ]);
 
-    const codes = priorityCodes(
+    const codes = requestedCodes(
       stocks.stocks,
+      market,
       url.searchParams.get('visible'),
       url.searchParams.get('priority') === 'active',
     );
@@ -77,7 +88,9 @@ export async function GET(request: Request) {
       ...stocks,
       stocks: merged,
       indices,
-      source: 'KIS REST only · 종목목록/분봉 메타데이터는 기존 소스 사용',
+      source: market === 'KOSPI' || market === 'KOSDAQ'
+        ? 'KIS REST 전체 종목 · 30종목씩 자동 배치'
+        : 'KIS REST only · 종목목록/분봉 메타데이터는 기존 소스 사용',
     }, {
       headers: { 'Cache-Control': 'no-store' },
     });
