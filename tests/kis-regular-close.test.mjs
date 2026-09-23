@@ -21,10 +21,10 @@ void test('KIS daily-price parser keeps the latest verified KRX close', () => {
   });
 });
 
-void test('relay routing uses daily KRX close outside 09:00-15:30 and never J multi-price', () => {
+void test('plain KRX always uses the bulk J-market REST snapshot', () => {
   assert.deepEqual(domesticQuotePlan({ session: 'regular', open: true, minute: 600 }), { source: 'multi', marketCode: 'J' });
-  assert.deepEqual(domesticQuotePlan({ session: 'regular', open: true, minute: 1020 }), { source: 'daily-close', marketCode: 'J' });
-  assert.deepEqual(domesticQuotePlan({ session: 'regular', open: false, minute: 660 }), { source: 'daily-close', marketCode: 'J' });
+  assert.deepEqual(domesticQuotePlan({ session: 'regular', open: true, minute: 1020 }), { source: 'multi', marketCode: 'J' });
+  assert.deepEqual(domesticQuotePlan({ session: 'regular', open: false, minute: 660 }), { source: 'multi', marketCode: 'J' });
 });
 
 void test('KRX2 keeps NX multi-price after 16:00, distinct from Sunday KRX daily close', () => {

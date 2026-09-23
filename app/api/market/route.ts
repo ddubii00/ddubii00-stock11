@@ -83,10 +83,12 @@ export async function GET(request: Request) {
 
     const kis = await loadKisPrices(stocks.stocks, codes, market, afterMarket);
     const merged = mergeKisQuotes(stocks.stocks, kis, afterMarket);
+    const marketStatus = merged.some((quote) => quote.marketStatus === 'PRE') ? 'PRE' : stocks.marketStatus;
 
     return Response.json({
       ...stocks,
       stocks: merged,
+      marketStatus,
       indices,
       source: market === 'KOSPI' || market === 'KOSDAQ'
         ? 'KIS REST 전체 종목 · 30종목씩 자동 배치'

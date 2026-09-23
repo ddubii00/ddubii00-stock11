@@ -47,8 +47,9 @@ export function createMarketCalendar({ clock, fetchHoliday }) {
     if (!requestedAfter) return 'regular';
     const { minute } = clock();
     const open = await isOpenTradingDay();
-    // KRX2 is J only during the active KRX day. Before 09:00, after 16:00,
-    // and on holidays/weekends it remains on the independently cached NX view.
+    // Keep today's NXT premarket separate from yesterday's NXT final. Between
+    // 15:30 and 16:00 KRX2 continues to show today's regular KRX close.
+    if (open && minute >= 480 && minute < 540) return 'pre';
     return open && minute >= 540 && minute < 960 ? 'regular' : 'after';
   }
 

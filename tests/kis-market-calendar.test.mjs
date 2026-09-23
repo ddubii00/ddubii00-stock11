@@ -11,13 +11,20 @@ function calendar({ date, minute, open = true }) {
   return { value, calls: () => calls };
 }
 
-void test('KRX always remains regular while KRX2 selects J only during an open regular session', async () => {
+void test('KRX2 selects the current NXT premarket, then KRX, then NXT after-market', async () => {
   for (const sample of [
     { name: 'A trading day 10:00', date: '20260918', minute: 600, open: true, requestedAfter: false, expected: 'regular' },
+    { name: 'before 08:00 retains the preceding NXT final', date: '20260918', minute: 479, open: true, requestedAfter: true, expected: 'after' },
+    { name: '08:00 opens NXT premarket', date: '20260918', minute: 480, open: true, requestedAfter: true, expected: 'pre' },
+    { name: '08:49 NXT premarket', date: '20260918', minute: 529, open: true, requestedAfter: true, expected: 'pre' },
+    { name: '08:50 keeps the morning NX final', date: '20260918', minute: 530, open: true, requestedAfter: true, expected: 'pre' },
+    { name: '08:59 keeps the morning NX final', date: '20260918', minute: 539, open: true, requestedAfter: true, expected: 'pre' },
     { name: 'B trading day 10:00 KRX2', date: '20260918', minute: 600, open: true, requestedAfter: true, expected: 'regular' },
+    { name: '15:30 keeps KRX close until NXT opens', date: '20260918', minute: 930, open: true, requestedAfter: true, expected: 'regular' },
+    { name: '15:59 keeps KRX close until NXT opens', date: '20260918', minute: 959, open: true, requestedAfter: true, expected: 'regular' },
     { name: 'C trading day 17:00 KRX2', date: '20260918', minute: 1020, open: true, requestedAfter: true, expected: 'after' },
     { name: 'D trading day 21:00 KRX2', date: '20260918', minute: 1260, open: true, requestedAfter: true, expected: 'after' },
-    { name: 'E next day 08:00 KRX2', date: '20260921', minute: 480, open: true, requestedAfter: true, expected: 'after' },
+    { name: 'E next trading day 08:00 KRX2', date: '20260921', minute: 480, open: true, requestedAfter: true, expected: 'pre' },
     { name: 'F Saturday 11:00 KRX2', date: '20260919', minute: 660, open: false, requestedAfter: true, expected: 'after' },
     { name: 'G Sunday 11:00 KRX2', date: '20260920', minute: 660, open: false, requestedAfter: true, expected: 'after' },
     { name: 'H holiday 11:00 KRX2', date: '20261009', minute: 660, open: false, requestedAfter: true, expected: 'after' },

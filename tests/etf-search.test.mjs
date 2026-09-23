@@ -81,13 +81,35 @@ test('KRX2 uses Naver after-market quote fields while KRX keeps the regular clos
   assert.equal(after.stocks[0].change, 4);
   assert.equal(after.stocks[0].marketStatus, 'AFTER');
   assert.equal(after.stocks[0].volume, '765,432');
-  assert.match(after.source, /장후 포함/);
+  assert.match(after.source, /장전·장후 포함/);
 });
 
-test('KRX2 minute series preserves actual after-market points through 20:00 while KRX ends at 15:30', async () => {
+test('Naver fallback uses NX before the open and KRX during the regular session', async () => {
+  globalThis.fetch = async (url) => Response.json((typeof url === 'string' ? url : url instanceof URL ? url.href : url.url).includes('polling.finance.naver.com') ? {
+    result: { areas: [{ datas: [{ cd: '123456', nxtOverMarketPriceInfo: {
+      overPrice: '103', compareToPreviousClosePrice: '4', fluctuationsRatio: '4', overMarketStatus: 'OPEN',
+      localTradedAt: '2026-09-23T08:30:00+09:00',
+    } }] }] },
+  } : { stocks: [{
+    stockEndType: 'stock', itemCode: '123456', reutersCode: '123456', stockName: '테스트종목', closePrice: '100',
+    compareToPreviousClosePrice: '1', fluctuationsRatio: '1', marketStatus: 'OPEN', localTradedAt: '2026-09-23T08:30:00+09:00',
+    stockExchangeType: { name: 'KOSDAQ' },
+  }] });
+  const morning = await readStocks('KOSDAQ', true, new Date('2026-09-23T08:30:00+09:00'));
+  const regular = await readStocks('KOSDAQ', true, new Date('2026-09-23T10:00:00+09:00'));
+  assert.equal(morning.stocks[0].price, 103);
+  assert.equal(morning.stocks[0].marketStatus, 'PRE');
+  assert.equal(morning.marketStatus, 'PRE');
+  assert.equal(regular.stocks[0].price, 100);
+});
+
+test('KRX2 minute series includes premarket and after-market, leaving both auction gaps empty', async () => {
   globalThis.fetch = async () => Response.json({
     tradeBaseAt: '20260908', lastClosePrice: 100, localDateTimeNow: '20260908200000',
     priceInfos: [
+      { localDateTime: '20260908080000', currentPrice: 98 },
+      { localDateTime: '20260908084900', currentPrice: 99 },
+      { localDateTime: '20260908085500', currentPrice: 99 },
       { localDateTime: '20260908090000', currentPrice: 100 },
       { localDateTime: '20260908153000', currentPrice: 101 },
       { localDateTime: '20260908155900', currentPrice: 102 },
@@ -98,6 +120,7 @@ test('KRX2 minute series preserves actual after-market points through 20:00 whil
   const regular = await readMinutes('KOSPI', '987654');
   const after = await readMinutes('KOSPI', '987654', false, true);
   assert.deepEqual(regular.points.map((point) => point.minute), [540, 930]);
-  assert.deepEqual(after.points.map((point) => point.minute), [540, 930, 959, 960, 1199]);
+  assert.deepEqual(after.points.map((point) => point.minute), [480, 529, 540, 930, 960, 1199]);
+  assert.equal(after.session.start, 480);
   assert.equal(after.session.end, 1200);
 });

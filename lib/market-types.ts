@@ -15,8 +15,8 @@ export type Quote = {
   market?: Exclude<Market, 'SP500' | 'DOW'>;
   marketStatus?: string;
   /** The provider that determined this price, not merely the page provider. */
-  priceSource?: 'kis-live' | 'kis-rest' | 'kis-multi-rest' | 'kis-cache' | 'kis-history' | 'kis-daily-close' | 'kis-regular-close' | 'kis-nxt-close' | 'naver-fallback';
-  /** KRX is the 15:30 regular close; UN is the KRX/NXT unified after session. */
+  priceSource?: 'kis-live' | 'kis-rest' | 'kis-multi-rest' | 'kis-cache' | 'kis-history' | 'kis-daily-close' | 'kis-regular-close' | 'kis-nxt-close' | 'kis-nxt-pre-close' | 'naver-fallback';
+  /** KRX2 uses NXT before 09:00 and after 16:00; KRX uses regular prices. */
   priceSession?: 'regular' | 'after';
   /** Transport retrieval time; unlike asOf this is never presented as a trade time. */
   fetchedAt?: string;

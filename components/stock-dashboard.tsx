@@ -38,7 +38,7 @@ const tone = (change: number) => change > 0 ? 'price-up' : change < 0 ? 'price-d
 const formatted = (value: number, market: Market) => value.toLocaleString('en-US', {
   minimumFractionDigits: isUS(market) ? 2 : 0, maximumFractionDigits: isUS(market) ? 2 : 0,
 });
-const statusLabel = (status?: string) => !status ? '연결 중' : status === 'OPEN' ? '장중' : status === 'AFTER' ? '장후' : '장종료';
+const statusLabel = (status?: string) => !status ? '연결 중' : status === 'OPEN' ? '장중' : status === 'PRE' ? '장전' : status === 'AFTER' ? '장후' : '장종료';
 const REFRESH_MS = 30_000;
 type LiveStatus = { state: string; subscribed: number; requested: number };
 const domesticMarket = (market: Market) => market === 'KOSPI' || market === 'KOSDAQ';
@@ -283,7 +283,7 @@ export function Board({ market, graph, payload, largeText, textScale = largeText
         </div>}
     </div>
     <footer className="board-footer">
-      <p className={error ? 'connection-error' : ''}>{error ?? (payload ? `${watch ? '관심종목 · 한국/미국 현지 정규장' : `${statusLabel(payload.marketStatus)} · ${payload.marketStatus === 'OPEN' ? '정규장 현재가' : '정규장 최종가격'} · ${asOf}${isUS(market) ? ' ET' : ''}`} · ${layout.columns}열${graph ? ' · 실제 분봉 · 전일 기준선 · Y축 자동' : ''}` : '네이버 증권 연결 중')}
+      <p className={error ? 'connection-error' : ''}>{error ?? (payload ? `${watch ? `관심종목 · 한국 ${afterMarket ? '장전·정규장·장후' : '정규장'}/미국 현지 정규장` : `${statusLabel(payload.marketStatus)} · ${payload.marketStatus === 'OPEN' ? '정규장 현재가' : payload.marketStatus === 'PRE' ? '장전 현재가' : payload.marketStatus === 'AFTER' ? '장후 현재가' : '최종가격'} · ${asOf}${isUS(market) ? ' ET' : ''}`} · ${layout.columns}열${graph ? ' · 실제 분봉 · 전일 기준선 · Y축 자동' : ''}` : '네이버 증권 연결 중')}
         {provider === 'kis' && autoRefresh && quotes.some((quote) => domesticMarket(quote.market ?? market)) && <span> · KIS REST · {quotes.filter((quote) => domesticMarket(quote.market ?? market)).length}종목 · {watch ? '2' : '3'}초 갱신</span>}
         {provider === 'kis' && autoRefresh && !quotes.some((quote) => domesticMarket(quote.market ?? market)) && payload?.marketStatus === 'OPEN' && <span> · {liveStatus.state === 'connected' && liveStatus.subscribed > 0 ? `KIS 구독 ${liveStatus.subscribed}/${liveStatus.requested || visible.length} · 미구독 30초` : 'KIS 연결 대기 · 30초 갱신'}</span>}
       </p>
@@ -505,7 +505,7 @@ export function StockDashboard() {
   });
   const watchPayloadFor = (list: WatchlistId): MarketPayload => {
     const savedQuotes = savedQuotesFor(list);
-    return { stocks: savedQuotes, indices: [], marketStatus: savedQuotes.some((quote) => quote.marketStatus === 'OPEN') ? 'OPEN' : 'CLOSE',
+    return { stocks: savedQuotes, indices: [], marketStatus: savedQuotes.some((quote) => quote.marketStatus === 'PRE') ? 'PRE' : savedQuotes.some((quote) => quote.marketStatus === 'OPEN') ? 'OPEN' : 'CLOSE',
       asOf: savedQuotes.reduce((latest, quote) => quote.asOf > latest ? quote.asOf : latest, ''), source: '네이버 증권' };
   };
 
@@ -521,9 +521,9 @@ export function StockDashboard() {
       <div className="session-badges">
         <div className="krx-mode-buttons" role="group" aria-label="한국 시장 시세 범위">
           <button type="button" className={krxMode === 'KRX' ? 'active' : ''} onClick={() => setKrxMode('KRX')} title="정규장 15:30까지">KRX</button>
-          <button type="button" className={krxMode === 'KRX2' ? 'active' : ''} onClick={() => setKrxMode('KRX2')} title="장후 체결가 포함">KRX2</button>
+          <button type="button" className={krxMode === 'KRX2' ? 'active' : ''} onClick={() => setKrxMode('KRX2')} title="장전 08:00–08:50 · 정규장 · 장후 16:00–20:00">KRX2</button>
         </div>
-        <span className={data.KOSPI?.marketStatus === 'OPEN' || data.KOSPI?.marketStatus === 'AFTER' ? 'session-open' : ''}><i />{statusLabel(data.KOSPI?.marketStatus)}</span>
+        <span className={data.KOSPI?.marketStatus === 'OPEN' || data.KOSPI?.marketStatus === 'PRE' || data.KOSPI?.marketStatus === 'AFTER' ? 'session-open' : ''}><i />{statusLabel(data.KOSPI?.marketStatus)}</span>
         <span className={data.NASDAQ?.marketStatus === 'OPEN' ? 'session-open' : ''}><i />미국 {statusLabel(data.NASDAQ?.marketStatus)}</span>
       </div>
       <div className="header-indices" aria-label="주요 시장 지수">

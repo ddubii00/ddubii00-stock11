@@ -3,7 +3,7 @@ import { multiBatches, multiCacheKey } from './kis-multi.mjs';
 import { createMarketCalendar } from './kis-market-calendar.mjs';
 import { dailyRows } from './kis-daily-close.mjs';
 import { parseRegularHistoricalClose } from './kis-regular-close.mjs';
-import { parseNxtFinalClose } from './kis-nxt-close.mjs';
+import { parseNxtFinalClose, parseNxtPremarketClose, parseNxtPremarketMinutes } from './kis-nxt-close.mjs';
 import { domesticQuotePlan } from './kis-domestic-routing.mjs';
 
 const appKey = process.env.KIS_APP_KEY;
@@ -38,6 +38,10 @@ const regularHistoricalCloseCache = new Map();
 const regularHistoricalClosePending = new Map();
 const nxtFinalCloseCache = new Map();
 const nxtFinalClosePending = new Map();
+const nxtPremarketCloseCache = new Map();
+const nxtPremarketClosePending = new Map();
+const nxtPremarketMinutesCache = new Map();
+const nxtPremarketMinutesPending = new Map();
 const latestTradeDateCache = new Map();
 
 const diagnostics = {
@@ -86,7 +90,6 @@ function signed(value, sign) {
 function multiTtl(scope) {
   return scope === 'watch' ? watchRefreshMs : scope === 'background' ? backgroundRefreshMs : visibleRefreshMs;
 }
-
 function seoulParts() {
   return new Intl.DateTimeFormat('en-CA', {
     timeZone: 'Asia/Seoul',
@@ -290,14 +293,14 @@ function multiQuote(row, session) {
     ...(Number.isFinite(number(row?.acml_vol)) ? { volume: String(number(row.acml_vol)) } : {}),
     asOf: fetchedAt,
     fetchedAt,
-    marketStatus: session === 'after' ? 'AFTER' : minute >= 930 ? 'CLOSE' : 'OPEN',
+    marketStatus: session === 'pre' ? 'PRE' : session === 'after' ? 'AFTER' : minute >= 930 ? 'CLOSE' : 'OPEN',
     priceSource: 'kis-multi-rest',
-    priceSession: session,
+    priceSession: session === 'pre' ? 'after' : session,
   };
 }
 
 async function currentDomesticQuotes(market, codes, session, scope) {
-  const marketCode = session === 'after' ? 'NX' : 'J';
+  const marketCode = session === 'after' || session === 'pre' ? 'NX' : 'J';
   const batches = multiBatches(codes, marketCode);
   const canonical = batches.flatMap((batch) => batch.codes);
   const cacheKey = multiCacheKey(market, session, codes);
@@ -492,6 +495,102 @@ async function readNxtFinalClose(market, code, tradeDate) {
   }
 }
 
+async function readNxtPremarketClose(market, code, tradeDate) {
+  const key = `${market}:${code}:${tradeDate}`;
+  const cached = nxtPremarketCloseCache.get(key);
+  if (cached?.quote) return cached.quote;
+  if (cached?.retryAt && cached.retryAt > Date.now()) return undefined;
+  if (nxtPremarketClosePending.has(key)) return nxtPremarketClosePending.get(key);
+
+  const task = (async () => {
+    try {
+      const regular = await readRegularHistoricalClose(market, code, tradeDate);
+      const body = await kisGet(
+        '/uapi/domestic-stock/v1/quotations/inquire-time-dailychartprice',
+        'FHKST03010230',
+        {
+          FID_COND_MRKT_DIV_CODE: 'NX',
+          FID_INPUT_ISCD: code,
+          FID_INPUT_HOUR_1: '085000',
+          FID_INPUT_DATE_1: tradeDate,
+          FID_PW_DATA_INCU_YN: 'N',
+          FID_FAKE_TICK_INCU_YN: '',
+        },
+        market,
+        code,
+        'nxt-pre-close',
+      );
+      const parsed = parseNxtPremarketClose(body, code, tradeDate, regular?.previousClose);
+      if (!parsed?.quote) {
+        nxtPremarketCloseCache.set(key, { retryAt: Date.now() + NXT_CLOSE_RETRY_MS });
+        return undefined;
+      }
+      nxtPremarketMinutesCache.set(key, {
+        data: { points: parseNxtPremarketMinutes(body, tradeDate), previousClose: parsed.quote.previousClose },
+        complete: true,
+        fetchedAt: Date.now(),
+      });
+      nxtPremarketCloseCache.set(key, { quote: parsed.quote });
+      return parsed.quote;
+    } catch {
+      nxtPremarketCloseCache.set(key, { retryAt: Date.now() + NXT_CLOSE_RETRY_MS });
+      return undefined;
+    }
+  })();
+  nxtPremarketClosePending.set(key, task);
+  try {
+    return await task;
+  } finally {
+    nxtPremarketClosePending.delete(key);
+  }
+}
+
+async function readNxtPremarketMinutes(market, code, tradeDate) {
+  const key = `${market}:${code}:${tradeDate}`;
+  const cached = nxtPremarketMinutesCache.get(key);
+  const clock = seoulClock();
+  const complete = tradeDate < clock.date || clock.minute >= 530;
+  if (cached && (cached.complete || Date.now() - cached.fetchedAt < NXT_CLOSE_RETRY_MS)) return cached.data;
+  if (nxtPremarketMinutesPending.has(key)) return nxtPremarketMinutesPending.get(key);
+  const task = (async () => {
+    try {
+      const body = await kisGet('/uapi/domestic-stock/v1/quotations/inquire-time-dailychartprice', 'FHKST03010230', {
+        FID_COND_MRKT_DIV_CODE: 'NX', FID_INPUT_ISCD: code, FID_INPUT_HOUR_1: '085000', FID_INPUT_DATE_1: tradeDate,
+        FID_PW_DATA_INCU_YN: 'N', FID_FAKE_TICK_INCU_YN: '',
+      }, market, code, 'nxt-pre-minutes');
+      const points = parseNxtPremarketMinutes(body, tradeDate);
+      const summary = Array.isArray(body?.output1) ? body.output1[0] : body?.output1;
+      const previousClose = number(summary?.stck_prdy_clpr);
+      const data = { points, ...(Number.isFinite(previousClose) && previousClose > 0 ? { previousClose } : {}) };
+      nxtPremarketMinutesCache.set(key, { data, complete: complete && (points.length > 0 || tradeDate < clock.date || clock.minute >= 540), fetchedAt: Date.now() });
+      return data;
+    } catch {
+      const data = cached?.data ?? { points: [] };
+      nxtPremarketMinutesCache.set(key, { data, complete: false, fetchedAt: Date.now() });
+      return data;
+    }
+  })();
+  nxtPremarketMinutesPending.set(key, task);
+  try {
+    return await task;
+  } finally {
+    nxtPremarketMinutesPending.delete(key);
+  }
+}
+
+async function nxtPremarketCloseQuotes(market, codes, scope, clock) {
+  if (!codes.length) return { quotes: {}, refreshMs: multiTtl(scope) };
+  const quotes = {};
+  const values = await Promise.allSettled(codes.map(async (code) => ({
+    code,
+    quote: await readNxtPremarketClose(market, code, clock.date),
+  })));
+  for (const value of values) {
+    if (value.status === 'fulfilled' && value.value.quote) quotes[value.value.code] = value.value.quote;
+  }
+  return { quotes, refreshMs: multiTtl(scope) };
+}
+
 async function nxtFinalQuotes(market, codes, scope, open, clock) {
   if (!codes.length) return { quotes: {}, refreshMs: multiTtl(scope) };
 
@@ -518,6 +617,7 @@ async function domesticQuotes(market, codes, requestedAfter, scope) {
   const plan = domesticQuotePlan({ session, open, minute: clock.minute });
 
   if (plan.source === 'multi') return currentDomesticQuotes(market, codes, session, scope);
+  if (plan.source === 'nxt-pre-close') return nxtPremarketCloseQuotes(market, codes, scope, clock);
   if (plan.source === 'nxt-close') return nxtFinalQuotes(market, codes, scope, open, clock);
   return regularHistoricalQuotes(market, codes, scope, open, clock);
 }
@@ -649,12 +749,25 @@ const server = createServer(async (request, response) => {
       recentErrors: [...diagnostics.lastError.values()].slice(-12).map((entry) => JSON.parse(entry)),
     });
   }
-
   if (url.pathname === '/stream') {
     return json(response, 410, {
       error: 'WebSocket streaming is disabled. Stock11 uses KIS REST polling only.',
       websocket: false,
     });
+  }
+
+  if (request.method === 'GET' && url.pathname === '/premarket-minutes') {
+    const market = url.searchParams.get('market');
+    const code = url.searchParams.get('code') ?? '';
+    const date = url.searchParams.get('date') ?? '';
+    if (!domestic(market) || !/^[A-Za-z0-9]{6}$/.test(code) || !/^\d{8}$/.test(date) || date > seoulClock().date) {
+      return json(response, 400, { error: 'Invalid premarket request' });
+    }
+    if (!appKey || !appSecret) {
+      return json(response, 200, { points: [] });
+    }
+    const data = await readNxtPremarketMinutes(market, code, date);
+    return json(response, 200, data);
   }
 
   if (request.method !== 'GET' || url.pathname !== '/quotes') {

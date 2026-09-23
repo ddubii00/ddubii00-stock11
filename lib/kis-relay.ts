@@ -1,4 +1,4 @@
-import type { Market, Quote } from './market-types';
+import type { Market, MinutePoint, Quote } from './market-types';
 
 type RelayQuote = Pick<Quote, 'chartCode' | 'price' | 'previousClose' | 'change' | 'changePrice' | 'asOf' | 'fetchedAt' | 'marketStatus' | 'volume' | 'priceSource' | 'priceSession'> & { name?: string };
 type RelayPayload = { quotes?: Record<string, RelayQuote>; source?: string; refreshMs?: number };
@@ -52,6 +52,23 @@ export async function readKisQuotes(
   scope: 'watch' | 'visible' | 'background' = 'visible',
 ): Promise<Record<string, RelayQuote>> {
   return (await readKisQuoteResult(market, codes, afterMarket, scope)).quotes;
+}
+
+type PremarketMinutes = { points: MinutePoint[]; previousClose?: number };
+export async function readKisPremarketMinutes(market: Market, code: string, date: string): Promise<PremarketMinutes> {
+  if (!kisEnabled() || !domestic(market) || !/^[A-Za-z0-9]{6}$/.test(code) || !/^\d{8}$/.test(date)) return { points: [] };
+  const url = new URL('/premarket-minutes', process.env.KIS_RELAY_URL || 'http://127.0.0.1:8091');
+  url.searchParams.set('market', market);
+  url.searchParams.set('code', code);
+  url.searchParams.set('date', date);
+  try {
+    const response = await fetch(url, { cache: 'no-store', signal: AbortSignal.timeout(25_000) });
+    if (!response.ok) return { points: [] };
+    const payload = await response.json() as PremarketMinutes;
+    return { points: (Array.isArray(payload.points) ? payload.points : []).filter((point) => Number.isInteger(point.minute)
+      && point.minute >= 480 && point.minute <= 530 && Number.isFinite(point.price) && point.price > 0),
+    ...(Number.isFinite(payload.previousClose) && Number(payload.previousClose) > 0 ? { previousClose: payload.previousClose } : {}) };
+  } catch { return { points: [] }; }
 }
 
 // Naver remains useful for names/list membership and the already-working minute

@@ -80,7 +80,10 @@ try {
   assert.equal((await fetch(vercel.origin + '/favicon.svg')).status, 200);
   const css = readdirSync('.next/static/css').find((name) => name.endsWith('.css'));
   assert.ok(css); assert.equal((await fetch(`${vercel.origin}/_next/static/css/${css}`)).status, 200);
-  assert.deepEqual(await (await fetch(vercel.origin + '/api/runtime')).json(), { provider: 'naver', refreshMs: 30000, marketRefreshMs: 30000, watchRefreshMs: 30000 });
+  assert.deepEqual(await (await fetch(vercel.origin + '/api/runtime')).json(), {
+    provider: 'naver', refreshMs: 30000, marketRefreshMs: 30000, watchRefreshMs: 30000,
+    transport: 'fallback', websocket: false,
+  });
   assert.equal((await fetch(vercel.origin + '/api/live?market=KOSPI&codes=005930')).status, 404);
   assert.equal((await fetch(vercel.origin + '/api/market?market=INVALID')).status, 400);
   assert.equal((await fetch(vercel.origin + '/api/chart?market=KOSPI&codes=../../secret')).status, 400);
@@ -97,18 +100,21 @@ try {
   const relay = await start('server/kis-relay.mjs');
   const health = await (await fetch(relay.origin + '/health')).json();
   assert.equal(health.configured, false);
-  await streamText(relay.origin + '/stream?market=NASDAQ&codes=AAPL.O', 'unconfigured');
-  assert.equal((await fetch(relay.origin + '/stream?market=NASDAQ&codes=../../secret')).status, 400);
+  assert.equal((await fetch(relay.origin + '/stream?market=NASDAQ&codes=AAPL.O')).status, 410);
+  assert.equal((await fetch(relay.origin + '/premarket-minutes?market=KOSPI&code=../../secret&date=20200101')).status, 400);
+  assert.deepEqual(await (await fetch(relay.origin + '/premarket-minutes?market=KOSPI&code=005930&date=20200101')).json(), { points: [] });
   await stop(relay.child);
   console.info('PASS real relay without keys: honest unconfigured status, no KIS authentication attempted.');
 
-  let activeStreams = 0;
   const mock = createServer((request, response) => {
-    assert.equal(new URL(request.url, 'http://test').pathname, '/stream');
-    response.writeHead(200, { 'content-type': 'text/event-stream' }); activeStreams++;
-    response.on('close', () => activeStreams--);
-    response.write('event: status\ndata: {"state":"connected","subscribed":1,"requested":1}\n\n');
-    response.write('event: quote\ndata: {"code":"005930","price":12345,"testOnly":true}\n\n');
+    if (new URL(request.url, 'http://test').pathname !== '/quotes') {
+      response.writeHead(404); response.end(); return;
+    }
+    response.writeHead(200, { 'content-type': 'application/json' });
+    response.end(JSON.stringify({ quotes: { 'AAPL.O': {
+      chartCode: 'AAPL.O', price: 12345, previousClose: 12000, change: 2.875, changePrice: 345,
+      asOf: '2026-09-23T10:00:00-04:00', marketStatus: 'OPEN', priceSession: 'regular', testOnly: true,
+    } } }));
   });
   const relayOrigin = await listen(mock);
   const oracle = await start('.next/standalone/server.js', {
@@ -127,10 +133,7 @@ try {
   assert.equal((await fetch(oracle.origin + '/api/live?market=KOSPI&codes=005930')).status, 400);
   const text = await streamText(oracle.origin + '/api/live?market=NASDAQ&codes=AAPL.O', 'testOnly');
   assert.match(text, /12345/);
-  for (let attempt = 0; activeStreams && attempt < 30; attempt++) await delay(100);
-  assert.equal(activeStreams, 0, 'SSE cancellation must release upstream subscriptions');
   mock.closeAllConnections(); await new Promise((resolve) => mock.close(resolve)); servers.delete(mock);
-  assert.equal((await fetch(oracle.origin + '/api/live?market=NASDAQ&codes=AAPL.O')).status, 503);
   await stop(oracle.child);
   const restartedOracle = await start('.next/standalone/server.js', {
     STOCK11_PROFILE_STORE: 'sqlite', STOCK11_SQLITE_PATH: sqlitePath, STOCK11_SYNC_PASSWORD: oraclePassword,

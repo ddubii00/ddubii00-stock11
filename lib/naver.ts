@@ -1,5 +1,6 @@
 import type { Market, MinuteSeries, MarketPayload, IndexQuote, Quote, StockSelection, CandleSeries } from './market-types';
 import { searchUsSymbols } from './us-symbol-search';
+import { clockInZone } from './chart-model';
 
 const headers = { Accept: 'application/json', Referer: 'https://m.stock.naver.com/', 'User-Agent': 'Mozilla/5.0' };
 const cache = new Map<string, { expires: number; value: unknown }>();
@@ -57,9 +58,24 @@ function signedNumber(value: string | number | undefined, direction?: Stock['com
   if (/보합|UNCHANGED|3/i.test(marker)) return 0;
   return Math.abs(parsed);
 }
-function quoteFrom(stock: Stock, fallback: Market, afterMarket = false): Quote {
+function isNxtPriceWindow(stock: Stock, market: Market, afterMarket: boolean, now: Date) {
+  if (!afterMarket || !domestic(market)) return false;
+  const { date, minute } = clockInZone(now, 'Asia/Seoul');
+  const stockDate = stock.localTradedAt.replace(/\D/g, '').slice(0, 8);
+  // During today's KRX session the NXT field can still carry the morning
+  // premarket price. Closed days retain the last NXT final instead.
+  if (stockDate === date && minute >= 540 && minute < 960) return false;
+  // At today's premarket open, an unchanged over-market field may still
+  // contain yesterday's last print. Wait for a same-day NX timestamp.
+  if (stockDate === date && minute >= 480 && minute < 540) {
+    const nxtDate = String(stock.overMarketPriceInfo?.localTradedAt ?? '').replace(/\D/g, '').slice(0, 8);
+    return nxtDate === date;
+  }
+  return true;
+}
+function quoteFrom(stock: Stock, fallback: Market, afterMarket = false, now = new Date()): Quote {
   const market = exchange(stock, fallback);
-  const after = afterMarket && domestic(market) && stock.overMarketPriceInfo && number(stock.overMarketPriceInfo.overPrice) > 0
+  const after = isNxtPriceWindow(stock, market, afterMarket, now) && stock.overMarketPriceInfo && number(stock.overMarketPriceInfo.overPrice) > 0
     ? stock.overMarketPriceInfo : undefined;
   const price = number(after?.overPrice ?? stock.closePrice);
   const changePrice = after ? signedNumber(after.compareToPreviousClosePrice, after.compareToPreviousPrice) : number(stock.compareToPreviousClosePrice);
@@ -69,7 +85,7 @@ function quoteFrom(stock: Stock, fallback: Market, afterMarket = false): Quote {
   return {
     ...(stock.stockEndType === 'etf' ? { instrumentType: 'etf' as const } : {}),
     code: stock.symbolCode ?? stock.itemCode ?? stock.reutersCode ?? '', chartCode: stock.itemCode ?? stock.reutersCode ?? '',
-    name: stock.stockName, market, marketStatus: after?.overMarketStatus === 'OPEN' ? 'AFTER' : stock.marketStatus, price, changePrice, change, previousClose: price - changePrice,
+    name: stock.stockName, market, marketStatus: after?.overMarketStatus === 'OPEN' ? (clockInZone(now, 'Asia/Seoul').minute < 540 ? 'PRE' : 'AFTER') : stock.marketStatus, price, changePrice, change, previousClose: price - changePrice,
     turnover: domestic(market) ? stock.accumulatedTradingValueKrwHangeul ?? '—' : stock.accumulatedTradingValue ?? '—',
     volume: Number.isFinite(number(volume)) ? number(volume).toLocaleString('en-US') : '—',
     asOf: after?.localTradedAt ?? stock.localTradedAt,
@@ -129,7 +145,7 @@ async function readForeignVolume(code: string): Promise<string | number | undefi
   return undefined;
 }
 
-export async function readStocks(market: Market, afterMarket = false): Promise<Omit<MarketPayload, 'indices'>> {
+export async function readStocks(market: Market, afterMarket = false, now = new Date()): Promise<Omit<MarketPayload, 'indices'>> {
   const url = (page: number) => market === 'SP500' || market === 'DOW'
     ? `https://api.stock.naver.com/index/${market === 'DOW' ? '.DJI' : '.INX'}/stocks?page=${page}&pageSize=100`
     : !domestic(market)
@@ -152,11 +168,12 @@ export async function readStocks(market: Market, afterMarket = false): Promise<O
       return after ? { ...stock, overMarketPriceInfo: after } : stock;
     });
   }
+  const quotes = stocks.map((stock) => quoteFrom(stock, market, afterMarket, now));
   return {
-    stocks: stocks.map((stock) => quoteFrom(stock, market, afterMarket)),
-    marketStatus: afterMarket && domestic(market) && stocks.some((stock) => stock.overMarketPriceInfo?.overMarketStatus === 'OPEN') ? 'AFTER' : stocks[0].marketStatus,
-    asOf: stocks.map((stock) => afterMarket && domestic(market) ? stock.overMarketPriceInfo?.localTradedAt ?? stock.localTradedAt : stock.localTradedAt).reduce((latest, time) => time > latest ? time : latest, stocks[0].localTradedAt),
-    source: afterMarket && domestic(market) ? '네이버 증권 · 장후 포함' : '네이버 증권',
+    stocks: quotes,
+    marketStatus: quotes.some((quote) => quote.marketStatus === 'PRE') ? 'PRE' : quotes.some((quote) => quote.marketStatus === 'AFTER') ? 'AFTER' : stocks[0].marketStatus,
+    asOf: quotes.map((quote) => quote.asOf).reduce((latest, time) => time > latest ? time : latest, stocks[0].localTradedAt),
+    source: afterMarket && domestic(market) ? '네이버 증권 · 장전·장후 포함' : '네이버 증권',
   };
 }
 
@@ -178,12 +195,11 @@ export async function readMinutes(market: Market, code: string, index = false, a
     priceInfos: { localDateTime: string; currentPrice: number }[];
   }>(`https://api.stock.naver.com/chart/${region}/${index ? 'index' : 'item'}/${encodeURIComponent(code)}?periodType=day`, 15000);
   if (!data.tradeBaseAt || !Array.isArray(data.priceInfos)) throw new Error('분봉 데이터를 받지 못했습니다.');
-  const start = domestic(market) ? 540 : 570;
-  // KRX2 deliberately keeps the empty 15:30–16:00 interval on the fixed
-  // axis, then draws only real NXT/after-market points through 20:00.
+  const start = domestic(market) ? afterMarket ? 480 : 540 : 570;
+  // KRX2 uses one fixed 08:00–20:00 axis and only the three trading windows.
   const end = domestic(market) ? afterMarket ? 1200 : 930 : 960;
   const session = domestic(market)
-    ? { start, end, timeZone: 'Asia/Seoul', ticks: afterMarket ? [540, 660, 780, 930, 960, 1080, 1200] : [540, 660, 780, 930] }
+    ? { start, end, timeZone: 'Asia/Seoul', ticks: afterMarket ? [480, 530, 540, 660, 780, 930, 960, 1080, 1200] : [540, 660, 780, 930] }
     : { start, end, timeZone: 'America/New_York', ticks: [570, 720, 840, 960] };
   return {
     market, code, date: data.tradeBaseAt, previousClose: data.lastClosePrice, asOf: data.localDateTimeNow,
@@ -191,7 +207,8 @@ export async function readMinutes(market: Market, code: string, index = false, a
       && item.localDateTime <= data.localDateTimeNow && item.currentPrice > 0).map((item) => ({
         minute: Number(item.localDateTime.slice(8, 10)) * 60 + Number(item.localDateTime.slice(10, 12)),
         price: item.currentPrice,
-      })).filter((point) => point.minute >= start && point.minute <= end), session,
+      })).filter((point) => point.minute >= start && point.minute <= end
+        && (!domestic(market) || !afterMarket || point.minute <= 530 || (point.minute >= 540 && point.minute <= 930) || point.minute >= 960)), session,
   };
 }
 
@@ -253,7 +270,7 @@ export async function readFxMinutes(): Promise<MinuteSeries> {
   };
 }
 
-export async function readQuote(market: Market, code: string, afterMarket = false): Promise<Quote> {
+export async function readQuote(market: Market, code: string, afterMarket = false, now = new Date()): Promise<Quote> {
   const root = domestic(market) ? 'https://m.stock.naver.com/api' : 'https://api.stock.naver.com';
   const stock = await naverJson<Stock>(`${root}/stock/${encodeURIComponent(code)}/basic`);
   if (!['stock', 'etf'].includes(stock.stockEndType)) throw new Error('주식 또는 ETF 종목이 아닙니다.');
@@ -269,7 +286,7 @@ export async function readQuote(market: Market, code: string, afterMarket = fals
     const after = (await readDomesticAfterPrices([code])).get(code);
     if (after) stock.overMarketPriceInfo = after;
   }
-  return quoteFrom(stock, market, afterMarket);
+  return quoteFrom(stock, market, afterMarket, now);
 }
 
 // Provider's genuine daily OHLC. Do not manufacture US minute candles from closes.

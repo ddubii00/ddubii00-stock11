@@ -20,12 +20,18 @@ export function Sparkline({ series: snapshot, tick, name, now, mini = false }: {
   const x = (minute: number) => left + (model?.x(minute) ?? 0) * (right - left);
   const y = (price: number) => top + (model?.y(price) ?? .5) * (bottom - top);
   const baseline = series && series.previousClose > 0 ? y(series.previousClose) : null;
-  const path = model?.points.map((point, index) => `${index ? 'L' : 'M'}${x(point.minute).toFixed(2)},${y(point.price).toFixed(2)}`).join(' ') ?? '';
+  const extendedDomestic = series && (series.market === 'KOSPI' || series.market === 'KOSDAQ') && model?.session.start === 480;
+  const path = model?.points.map((point, index, points) => {
+    const previous = points[index - 1];
+    const gap = extendedDomestic && previous && ((previous.minute < 540 && point.minute >= 540)
+      || (previous.minute <= 930 && point.minute >= 960));
+    return `${index && !gap ? 'L' : 'M'}${x(point.minute).toFixed(2)},${y(point.price).toFixed(2)}`;
+  }).join(' ') ?? '';
   const fx = series?.market === 'FX';
   const detail = `${name} · ${series?.date ?? ''} · 전일 ${series?.previousClose ?? '미수신'} · ${model?.last ? `${minuteLabel(model.last.minute)}까지 ${fx ? '실제 고시환율 · 분 단위' : '실제 분봉'}` : '분봉 미수신'}`;
   return <div className={`chart-area ${mini ? 'mini-chart' : ''}`} title={detail}>
     <svg className="sparkline" viewBox={`0 0 ${width} ${height}`} preserveAspectRatio="none" role="img" aria-label={detail}>
-      <title>{`${detail} · ${fx ? '한국 주식장 기준 09:00–15:30 고정축 (외환시장 전체 거래시간 아님)' : '정규장 전체 시간축'} · 가격 범위 자동 조절`}</title>
+      <title>{`${detail} · ${fx ? '한국 주식장 기준 09:00–15:30 고정축 (외환시장 전체 거래시간 아님)' : extendedDomestic ? '장전·정규장·장후 08:00–20:00 고정축' : '정규장 전체 시간축'} · 가격 범위 자동 조절`}</title>
       {baseline !== null && <>
         <line x1={left} x2={right} y1={baseline} y2={baseline} className="spark-baseline" vectorEffect="non-scaling-stroke" />
         <defs>
