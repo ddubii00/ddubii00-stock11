@@ -77,6 +77,8 @@ function quoteFrom(stock: Stock, fallback: Market, afterMarket = false, now = ne
   const market = exchange(stock, fallback);
   const after = isNxtPriceWindow(stock, market, afterMarket, now) && stock.overMarketPriceInfo && number(stock.overMarketPriceInfo.overPrice) > 0
     ? stock.overMarketPriceInfo : undefined;
+  const afterTime = String(after?.localTradedAt ?? '').match(/T(\d{2}):(\d{2})/);
+  const afterMinute = afterTime ? Number(afterTime[1]) * 60 + Number(afterTime[2]) : clockInZone(now, 'Asia/Seoul').minute;
   const price = number(after?.overPrice ?? stock.closePrice);
   const changePrice = after ? signedNumber(after.compareToPreviousClosePrice, after.compareToPreviousPrice) : number(stock.compareToPreviousClosePrice);
   const change = after ? signedNumber(after.fluctuationsRatio, after.compareToPreviousPrice) : number(stock.fluctuationsRatio);
@@ -85,7 +87,7 @@ function quoteFrom(stock: Stock, fallback: Market, afterMarket = false, now = ne
   return {
     ...(stock.stockEndType === 'etf' ? { instrumentType: 'etf' as const } : {}),
     code: stock.symbolCode ?? stock.itemCode ?? stock.reutersCode ?? '', chartCode: stock.itemCode ?? stock.reutersCode ?? '',
-    name: stock.stockName, market, marketStatus: after?.overMarketStatus === 'OPEN' ? (clockInZone(now, 'Asia/Seoul').minute < 540 ? 'PRE' : 'AFTER') : stock.marketStatus, price, changePrice, change, previousClose: price - changePrice,
+    name: stock.stockName, market, marketStatus: after?.overMarketStatus === 'OPEN' ? (afterMinute >= 480 && afterMinute <= 530 ? 'PRE' : 'AFTER') : stock.marketStatus, price, changePrice, change, previousClose: price - changePrice,
     turnover: domestic(market) ? stock.accumulatedTradingValueKrwHangeul ?? '—' : stock.accumulatedTradingValue ?? '—',
     volume: Number.isFinite(number(volume)) ? number(volume).toLocaleString('en-US') : '—',
     asOf: after?.localTradedAt ?? stock.localTradedAt,
