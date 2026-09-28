@@ -56,7 +56,7 @@ void test('one-time migration never overwrites an existing server record and rej
   assert.deepEqual(applyOperation(profile, { type: 'highlight', key: 'NASDAQ:QQQ.O', color: null }).highlights, []);
 });
 
-void test('three saved watchlists migrate to four without losing any existing list', () => {
+void test('three saved watchlists migrate to five without losing any existing list', () => {
   const oldProfile = {
     ...emptyProfile(),
     watchlist: [samsung],
@@ -64,7 +64,7 @@ void test('three saved watchlists migrate to four without losing any existing li
   };
   const restored = restoreProfile(oldProfile);
   assert.ok(restored);
-  assert.deepEqual(profileWatchlists(restored).map((list) => list.map((item) => item.code)), [['005930'], ['QQQ'], ['005930'], []]);
+  assert.deepEqual(profileWatchlists(restored).map((list) => list.map((item) => item.code)), [['005930'], ['QQQ'], ['005930'], [], []]);
   const updated = applyOperation(restored, parseOperation({ type: 'add', list: 3, item: qqq }));
   assert.deepEqual(profileWatchlists(updated)[3].map((item) => item.code), ['QQQ']);
 });

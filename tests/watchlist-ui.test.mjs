@@ -147,6 +147,29 @@ test('small watchlists use normal row height, minute trends, and cell-local dele
   } finally { dom.window.HTMLElement.prototype.getBoundingClientRect = originalRect; cleanup(); }
 });
 
+test('watchlist signal tags show compact percentages with buy, sell, and hold colors', () => {
+  for (const [item, key, action, cssClass, text, label] of [
+    [samsung, 'KOSPI:005930', 'PARTIAL_BUY', 'partial_buy', '15%', '부분매수 15%'],
+    [sdi, 'KOSPI:006400', 'PARTIAL_SELL', 'partial_sell', '15%', '부분매도 15%'],
+    [apple, 'NASDAQ:AAPL.O', 'HOLD', 'hold', '0%', '관망 0%'],
+  ]) {
+    const quote = { ...item, price: 100, previousClose: 99, change: 1, changePrice: 1, asOf: '2026-09-07T15:30:00+09:00', turnover: '', marketStatus: 'CLOSE' };
+    const { container } = render(React.createElement(Board, {
+      market: 'KOSPI', graph: false, watch: true,
+      signals: { [key]: { action, percentage: action === 'HOLD' ? 42 : 15 } },
+      payload: { stocks: [quote], indices: [], marketStatus: 'CLOSE', asOf: quote.asOf, source: 'test' },
+      largeText: true, autoRefresh: false, now: Date.parse('2026-09-08T09:00:00+09:00'), provider: 'naver',
+    }));
+    try {
+      const tag = container.querySelector(`.core-signal.${cssClass}`);
+      assert.equal(tag?.textContent, text);
+      assert.equal(tag?.getAttribute('aria-label'), label);
+    } finally {
+      cleanup();
+    }
+  }
+});
+
 test('quote and chart backgrounds toggle highlights independently of name links, across price updates and views', async () => {
   globalThis.fetch = async () => Response.json({ series: {}, errors: {} });
   const user = userEvent.setup({ document: dom.window.document });
