@@ -21,6 +21,8 @@ void test('KRX2 selects the current NXT premarket, then KRX, then NXT after-mark
     { name: '08:59 keeps the morning NX final', date: '20260918', minute: 539, open: true, requestedAfter: true, expected: 'pre' },
     { name: 'B trading day 10:00 KRX2', date: '20260918', minute: 600, open: true, requestedAfter: true, expected: 'regular' },
     { name: '15:30 keeps KRX close until NXT opens', date: '20260918', minute: 930, open: true, requestedAfter: true, expected: 'regular' },
+    { name: '15:31 keeps refreshing the KRX auction close', date: '20260918', minute: 931, open: true, requestedAfter: true, expected: 'regular' },
+    { name: '15:32 keeps refreshing the KRX auction close', date: '20260918', minute: 932, open: true, requestedAfter: true, expected: 'regular' },
     { name: '15:59 keeps KRX close until NXT opens', date: '20260918', minute: 959, open: true, requestedAfter: true, expected: 'regular' },
     { name: 'C trading day 17:00 KRX2', date: '20260918', minute: 1020, open: true, requestedAfter: true, expected: 'after' },
     { name: 'D trading day 21:00 KRX2', date: '20260918', minute: 1260, open: true, requestedAfter: true, expected: 'after' },

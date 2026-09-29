@@ -5,11 +5,21 @@ export function domesticQuotePlan({ session, open, minute }) {
   if (session === 'regular') return { source: 'multi', marketCode: 'J' };
 
   // KRX2 uses NX during the premarket, preserving its 08:50 final until KRX
-  // opens at 09:00. The regular and after-market paths remain independent.
+  // opens at 09:00. Symbols without an NX session (including some preferred
+  // shares and ETFs) fall back to their last verified 15:30 KRX close.
   if (session === 'pre') return open && minute < 530
-    ? { source: 'multi', marketCode: 'NX' }
-    : { source: 'nxt-pre-close', marketCode: 'NX' };
+    ? { source: 'multi', marketCode: 'NX', fallback: 'regular-close' }
+    : { source: 'nxt-pre-close', marketCode: 'NX', fallback: 'regular-close' };
 
   const liveNxtSession = open && minute >= 960 && minute < 1200;
-  return liveNxtSession ? { source: 'multi', marketCode: 'NX' } : { source: 'nxt-close', marketCode: 'NX' };
+  return liveNxtSession
+    ? { source: 'multi', marketCode: 'NX', fallback: 'regular-close' }
+    : { source: 'nxt-close', marketCode: 'NX', fallback: 'regular-close' };
+}
+
+export function mergeNxtWithRegular(codes, nxtQuotes, regularQuotes) {
+  return Object.fromEntries(codes.flatMap((code) => {
+    const quote = nxtQuotes[code] ?? regularQuotes[code];
+    return quote ? [[code, quote]] : [];
+  }));
 }

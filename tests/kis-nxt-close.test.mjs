@@ -22,15 +22,15 @@ void test('NXT history retains the last real after-market trade rather than a cl
 
 void test('closed KRX2 routes to NX history while live 16:00-20:00 uses NX multi-price', () => {
   assert.deepEqual(domesticQuotePlan({ session: 'regular', open: true, minute: 1020 }), { source: 'multi', marketCode: 'J' });
-  assert.deepEqual(domesticQuotePlan({ session: 'after', open: true, minute: 1020 }), { source: 'multi', marketCode: 'NX' });
-  assert.deepEqual(domesticQuotePlan({ session: 'after', open: true, minute: 1230 }), { source: 'nxt-close', marketCode: 'NX' });
-  assert.deepEqual(domesticQuotePlan({ session: 'after', open: false, minute: 660 }), { source: 'nxt-close', marketCode: 'NX' });
+  assert.deepEqual(domesticQuotePlan({ session: 'after', open: true, minute: 1020 }), { source: 'multi', marketCode: 'NX', fallback: 'regular-close' });
+  assert.deepEqual(domesticQuotePlan({ session: 'after', open: true, minute: 1230 }), { source: 'nxt-close', marketCode: 'NX', fallback: 'regular-close' });
+  assert.deepEqual(domesticQuotePlan({ session: 'after', open: false, minute: 660 }), { source: 'nxt-close', marketCode: 'NX', fallback: 'regular-close' });
 });
 
 void test('KRX2 uses live NX from 08:00 to 08:50 and today’s last premarket trade until 09:00', () => {
-  assert.deepEqual(domesticQuotePlan({ session: 'pre', open: true, minute: 480 }), { source: 'multi', marketCode: 'NX' });
-  assert.deepEqual(domesticQuotePlan({ session: 'pre', open: true, minute: 529 }), { source: 'multi', marketCode: 'NX' });
-  assert.deepEqual(domesticQuotePlan({ session: 'pre', open: true, minute: 530 }), { source: 'nxt-pre-close', marketCode: 'NX' });
+  assert.deepEqual(domesticQuotePlan({ session: 'pre', open: true, minute: 480 }), { source: 'multi', marketCode: 'NX', fallback: 'regular-close' });
+  assert.deepEqual(domesticQuotePlan({ session: 'pre', open: true, minute: 529 }), { source: 'multi', marketCode: 'NX', fallback: 'regular-close' });
+  assert.deepEqual(domesticQuotePlan({ session: 'pre', open: true, minute: 530 }), { source: 'nxt-pre-close', marketCode: 'NX', fallback: 'regular-close' });
   assert.deepEqual(domesticQuotePlan({ session: 'regular', open: true, minute: 540 }), { source: 'multi', marketCode: 'J' });
   assert.deepEqual(domesticQuotePlan({ session: 'regular', open: true, minute: 959 }), { source: 'multi', marketCode: 'J' });
   const parsed = parseNxtPremarketClose({

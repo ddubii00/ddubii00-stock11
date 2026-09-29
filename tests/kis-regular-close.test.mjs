@@ -30,7 +30,7 @@ void test('plain KRX always uses the bulk J-market REST snapshot', () => {
 void test('KRX2 keeps NX multi-price after 16:00, distinct from Sunday KRX daily close', () => {
   const krx = parseRegularDailyClose(fridayClose, '000660')?.quote;
   const krx2 = { price: 1849000, priceSession: 'after', priceSource: 'kis-multi-rest' };
-  assert.deepEqual(domesticQuotePlan({ session: 'after', open: true, minute: 1020 }), { source: 'multi', marketCode: 'NX' });
+  assert.deepEqual(domesticQuotePlan({ session: 'after', open: true, minute: 1020 }), { source: 'multi', marketCode: 'NX', fallback: 'regular-close' });
   assert.equal(krx?.price, 1857000);
   assert.equal(krx2.price, 1849000);
   assert.notEqual(krx?.price, krx2.price);

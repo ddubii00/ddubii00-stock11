@@ -4,7 +4,7 @@ import { createMarketCalendar } from './kis-market-calendar.mjs';
 import { dailyRows } from './kis-daily-close.mjs';
 import { parseRegularHistoricalClose } from './kis-regular-close.mjs';
 import { parseNxtFinalClose, parseNxtPremarketClose, parseNxtPremarketMinutes } from './kis-nxt-close.mjs';
-import { domesticQuotePlan } from './kis-domestic-routing.mjs';
+import { domesticQuotePlan, mergeNxtWithRegular } from './kis-domestic-routing.mjs';
 
 const appKey = process.env.KIS_APP_KEY;
 const appSecret = process.env.KIS_APP_SECRET;
@@ -384,7 +384,8 @@ async function resolveLatestTradingDate(market, sampleCode, open, clock) {
 async function readRegularHistoricalClose(market, code, tradeDate) {
   const key = `${market}:${code}:${tradeDate}`;
   const cached = regularHistoricalCloseCache.get(key);
-  if (cached?.quote) return cached.quote;
+  if (cached?.quote && cached.complete) return cached.quote;
+  if (cached?.quote && cached.retryAt > Date.now()) return cached.quote;
   if (cached?.retryAt && cached.retryAt > Date.now()) return undefined;
   if (regularHistoricalClosePending.has(key)) return regularHistoricalClosePending.get(key);
 
@@ -412,7 +413,13 @@ async function readRegularHistoricalClose(market, code, tradeDate) {
         return undefined;
       }
 
-      regularHistoricalCloseCache.set(key, { quote: parsed.quote });
+      const clock = seoulClock();
+      const complete = tradeDate < clock.date || parsed.quote.asOf.includes('T15:30:');
+      regularHistoricalCloseCache.set(key, {
+        quote: parsed.quote,
+        complete,
+        ...(complete ? {} : { retryAt: Date.now() + REGULAR_CLOSE_RETRY_MS }),
+      });
       return parsed.quote;
     } catch {
       regularHistoricalCloseCache.set(key, { retryAt: Date.now() + REGULAR_CLOSE_RETRY_MS });
@@ -450,7 +457,8 @@ async function regularHistoricalQuotes(market, codes, scope, open, clock) {
 async function readNxtFinalClose(market, code, tradeDate) {
   const key = `${market}:${code}:${tradeDate}`;
   const cached = nxtFinalCloseCache.get(key);
-  if (cached?.quote) return cached.quote;
+  if (cached?.quote && cached.complete) return cached.quote;
+  if (cached?.quote && cached.retryAt > Date.now()) return cached.quote;
   if (cached?.retryAt && cached.retryAt > Date.now()) return undefined;
   if (nxtFinalClosePending.has(key)) return nxtFinalClosePending.get(key);
 
@@ -479,7 +487,15 @@ async function readNxtFinalClose(market, code, tradeDate) {
         return undefined;
       }
 
-      nxtFinalCloseCache.set(key, { quote: parsed.quote });
+      const clock = seoulClock();
+      // KIS can publish the final 20:00 trade a little after the session ends.
+      // Keep polling through 20:01 instead of freezing the first response.
+      const complete = tradeDate < clock.date || clock.minute >= 1202;
+      nxtFinalCloseCache.set(key, {
+        quote: parsed.quote,
+        complete,
+        ...(complete ? {} : { retryAt: Date.now() + NXT_CLOSE_RETRY_MS }),
+      });
       return parsed.quote;
     } catch {
       nxtFinalCloseCache.set(key, { retryAt: Date.now() + NXT_CLOSE_RETRY_MS });
@@ -498,7 +514,8 @@ async function readNxtFinalClose(market, code, tradeDate) {
 async function readNxtPremarketClose(market, code, tradeDate) {
   const key = `${market}:${code}:${tradeDate}`;
   const cached = nxtPremarketCloseCache.get(key);
-  if (cached?.quote) return cached.quote;
+  if (cached?.quote && cached.complete) return cached.quote;
+  if (cached?.quote && cached.retryAt > Date.now()) return cached.quote;
   if (cached?.retryAt && cached.retryAt > Date.now()) return undefined;
   if (nxtPremarketClosePending.has(key)) return nxtPremarketClosePending.get(key);
 
@@ -530,7 +547,13 @@ async function readNxtPremarketClose(market, code, tradeDate) {
         complete: true,
         fetchedAt: Date.now(),
       });
-      nxtPremarketCloseCache.set(key, { quote: parsed.quote });
+      const clock = seoulClock();
+      const complete = tradeDate < clock.date || clock.minute >= 532;
+      nxtPremarketCloseCache.set(key, {
+        quote: parsed.quote,
+        complete,
+        ...(complete ? {} : { retryAt: Date.now() + NXT_CLOSE_RETRY_MS }),
+      });
       return parsed.quote;
     } catch {
       nxtPremarketCloseCache.set(key, { retryAt: Date.now() + NXT_CLOSE_RETRY_MS });
@@ -616,10 +639,24 @@ async function domesticQuotes(market, codes, requestedAfter, scope) {
   const open = await marketCalendar.isOpenTradingDay(clock.date);
   const plan = domesticQuotePlan({ session, open, minute: clock.minute });
 
-  if (plan.source === 'multi') return currentDomesticQuotes(market, codes, session, scope);
-  if (plan.source === 'nxt-pre-close') return nxtPremarketCloseQuotes(market, codes, scope, clock);
-  if (plan.source === 'nxt-close') return nxtFinalQuotes(market, codes, scope, open, clock);
-  return regularHistoricalQuotes(market, codes, scope, open, clock);
+  let result;
+  if (plan.source === 'multi') result = await currentDomesticQuotes(market, codes, session, scope);
+  else if (plan.source === 'nxt-pre-close') result = await nxtPremarketCloseQuotes(market, codes, scope, clock);
+  else if (plan.source === 'nxt-close') result = await nxtFinalQuotes(market, codes, scope, open, clock);
+  else result = await regularHistoricalQuotes(market, codes, scope, open, clock);
+
+  if (plan.fallback !== 'regular-close') return result;
+  const missing = codes.filter((code) => !result.quotes[code]);
+  if (!missing.length) return result;
+
+  // KRX2 must remain populated for preferred shares and ETFs that do not
+  // trade in NXT. Their most recent verified J-session close is the correct
+  // value before 09:00, throughout 16:00-20:00, after 20:00 and on holidays.
+  const fallback = await regularHistoricalQuotes(market, missing, scope, open, clock);
+  return {
+    quotes: mergeNxtWithRegular(codes, result.quotes, fallback.quotes),
+    refreshMs: Math.min(result.refreshMs, fallback.refreshMs),
+  };
 }
 
 function overseasExchange(market) {
