@@ -1,9 +1,10 @@
 'use client';
 
-import { useCallback, useEffect, useState, type FormEvent, type ReactNode } from 'react';
+import { useCallback, useEffect, useRef, useState, type FormEvent, type ReactNode } from 'react';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { apiPath } from '@/lib/base-path';
+import { requestErrorMessage } from '@/lib/request-error';
 
 type SessionState = { enabled?: boolean; authenticated?: boolean; error?: string };
 
@@ -12,15 +13,22 @@ export function SiteAccessGate({ children }: { children: ReactNode }) {
   const [password, setPassword] = useState('');
   const [message, setMessage] = useState('');
   const [busy, setBusy] = useState(false);
+  const checkGeneration = useRef(0);
   const check = useCallback(async () => {
+    const generation = ++checkGeneration.current;
     try {
       const response = await fetch(apiPath('/api/session'), { cache: 'no-store', signal: AbortSignal.timeout(30000) });
       const data = await response.json() as SessionState;
+      if (generation !== checkGeneration.current) return;
       if (!response.ok) throw new Error(data.error || '접속 인증 상태를 확인하지 못했습니다.');
       if (!data.enabled) { setPhase('error'); setMessage('서버 접속 암호 설정이 필요합니다.'); return; }
       setMessage(''); setPhase(data.authenticated ? 'ready' : 'locked');
     } catch (error) {
-      setPhase('error'); setMessage(error instanceof Error ? error.message : '접속 인증 상태를 확인하지 못했습니다.');
+      if (generation !== checkGeneration.current) return;
+      // A temporary timeout must not hide an already authenticated dashboard.
+      // The next timer/focus/visibility check automatically retries.
+      setPhase((current) => current === 'ready' ? current : 'error');
+      setMessage(requestErrorMessage(error, '서버 연결 지연 · 자동으로 다시 확인합니다.'));
     }
   }, []);
   useEffect(() => {
@@ -47,7 +55,7 @@ export function SiteAccessGate({ children }: { children: ReactNode }) {
       const data = await response.json() as SessionState;
       if (!response.ok) throw new Error(data.error || '접속 암호가 일치하지 않습니다.');
       setPassword(''); setPhase('ready'); window.dispatchEvent(new window.Event('stock11-session-changed'));
-    } catch (error) { setMessage(error instanceof Error ? error.message : '로그인에 실패했습니다.'); }
+    } catch (error) { setMessage(requestErrorMessage(error, '로그인 연결 지연 · 다시 시도해 주세요.')); }
     finally { setBusy(false); }
   };
   if (phase === 'ready') return <>{children}</>;

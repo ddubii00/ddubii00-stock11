@@ -100,6 +100,7 @@ try {
   const relay = await start('server/kis-relay.mjs');
   const health = await (await fetch(relay.origin + '/health')).json();
   assert.equal(health.configured, false);
+  assert.equal(health.refreshMs, 15000);
   assert.equal((await fetch(relay.origin + '/stream?market=NASDAQ&codes=AAPL.O')).status, 410);
   assert.equal((await fetch(relay.origin + '/premarket-minutes?market=KOSPI&code=../../secret&date=20200101')).status, 400);
   assert.deepEqual(await (await fetch(relay.origin + '/premarket-minutes?market=KOSPI&code=005930&date=20200101')).json(), { points: [] });
@@ -121,7 +122,10 @@ try {
     STOCK11_DATA_PROVIDER: 'kis', KIS_RELAY_URL: relayOrigin, STOCK11_PROFILE_STORE: 'sqlite',
     STOCK11_SQLITE_PATH: sqlitePath, STOCK11_SYNC_PASSWORD: oraclePassword, STOCK11_SYNC_ORIGIN: '__TEST_ORIGIN__',
   });
-  assert.equal((await (await fetch(oracle.origin + '/api/runtime')).json()).provider, 'kis');
+  assert.deepEqual(await (await fetch(oracle.origin + '/api/runtime')).json(), {
+    provider: 'kis', refreshMs: 15000, marketRefreshMs: 15000, watchRefreshMs: 15000,
+    transport: 'KIS REST only', websocket: false,
+  });
   const oracleSession = await (await fetch(oracle.origin + '/api/session')).json();
   assert.equal(oracleSession.enabled, true); assert.equal(oracleSession.authenticated, false); assert.equal(oracleSession.location, 'Oracle 서버');
   const cookie = await login(oracle.origin, oraclePassword);

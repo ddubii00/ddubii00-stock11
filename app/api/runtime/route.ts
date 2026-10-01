@@ -3,7 +3,7 @@ export const runtime = 'nodejs';
 
 export async function GET() {
   const kis = process.env.VERCEL !== '1' && process.env.STOCK11_DATA_PROVIDER === 'kis';
-  const refreshMs = kis ? 3_000 : 30_000;
+  const refreshMs = kis ? 15_000 : 30_000;
 
   return Response.json({
     provider: kis ? 'kis' : 'naver',

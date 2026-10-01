@@ -68,9 +68,9 @@ chmod 600 .env.oracle
 ```dotenv
 KIS_APP_KEY=발급받은_APP_KEY
 KIS_APP_SECRET=발급받은_APP_SECRET
-KIS_WATCHLIST_REFRESH_MS=2000
-KIS_VISIBLE_REFRESH_MS=3000
-KIS_BACKGROUND_REFRESH_MS=20000
+KIS_WATCHLIST_REFRESH_MS=15000
+KIS_VISIBLE_REFRESH_MS=15000
+KIS_BACKGROUND_REFRESH_MS=15000
 STOCK11_PORT=3011
 STOCK11_SYNC_PASSWORD=12자_이상의_개인용_비밀번호
 STOCK11_SYNC_ORIGIN=https://stock11.example.com
@@ -86,7 +86,7 @@ curl http://127.0.0.1:3011/api/runtime
 docker compose --env-file .env.oracle exec kis-relay node -e "fetch('http://127.0.0.1:8091/health').then(r=>r.text()).then(console.log)"
 ```
 
-정상 설정이면 health는 `{"status":"ok"}`, runtime은 `{"provider":"kis","marketRefreshMs":3000,"watchRefreshMs":2000}`을 반환합니다. 이는 앱 실행 확인이며 KIS 인증 성공을 의미하지는 않습니다.
+정상 설정이면 health는 `{"status":"ok"}`, runtime은 `{"provider":"kis","marketRefreshMs":15000,"watchRefreshMs":15000}`을 반환합니다. 이는 앱 실행 확인이며 KIS 인증 성공을 의미하지는 않습니다.
 
 - `app`: 비관리자 사용자로 실행하는 Next.js standalone 서버. KIS 키를 받지 않습니다.
 - `stock11-profile`: 로그인 세션과 관심종목 기록을 담는 Oracle 내부 영구 volume입니다. 이미지 재빌드와 일반 `docker compose down` 뒤에도 유지됩니다. 기록을 보존하려면 `docker compose down -v`로 volume을 삭제하지 마세요.
@@ -112,7 +112,7 @@ docker compose --env-file .env.oracle up -d
 
 ## KIS 국내 멀티 REST와 세션 분리
 
-Oracle에서는 KIS relay만 App Key/Secret과 access token을 보관합니다. 앱 컨테이너는 사설 Docker 네트워크의 relay `/quotes`만 호출하며, 키·시크릿·bearer token을 받거나 로그에 남기지 않습니다. 국내 현재가는 공식 `intstock-multprice` (`FHKST11300006`)를 최대 30종목씩 호출합니다. relay는 코드 집합을 정렬한 cache key와 in-flight deduplication으로 여러 브라우저의 같은 batch를 한 번만 upstream 호출합니다. 관심종목은 기본 2초, 현재 화면은 3초, 200종목 background cache는 20초 주기이며 환경변수로 조절합니다. 전역 queue 기본 간격은 350ms, 동시성은 2입니다.
+Oracle에서는 KIS relay만 App Key/Secret과 access token을 보관합니다. 앱 컨테이너는 사설 Docker 네트워크의 relay `/quotes`만 호출하며, 키·시크릿·bearer token을 받거나 로그에 남기지 않습니다. 국내 현재가는 공식 `intstock-multprice` (`FHKST11300006`)를 최대 30종목씩 호출합니다. relay는 코드 집합을 정렬한 cache key와 in-flight deduplication으로 여러 브라우저의 같은 batch를 한 번만 upstream 호출합니다. 현재 화면의 전체 종목, 관심종목 및 background cache는 모두 15초 주기로 갱신합니다. 전역 queue 기본 간격은 350ms, 동시성은 2입니다.
 
 - **KRX**는 멀티 REST의 `J`(KRX)만 사용하며, 15:30 이후에도 KRX 정규장 종가만 표시합니다.
 - **KRX2**는 정규장에는 `J`, NXT 세션에는 `NX`를 사용합니다. 예를 들어 KRX 1,857,000원과 KRX2 1,849,000원은 별도의 session으로 섞이지 않습니다. KIS가 실패하거나 일부 종목을 누락할 때만 네이버 장후 필드를 fallback으로 사용합니다.

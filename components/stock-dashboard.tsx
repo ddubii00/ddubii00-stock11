@@ -9,6 +9,7 @@ import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@
 import { Pagination, PaginationContent, PaginationItem } from '@/components/ui/pagination';
 import { fitBoard } from '@/lib/board-layout';
 import { apiPath } from '@/lib/base-path';
+import { requestErrorMessage } from '@/lib/request-error';
 import { sessionFor } from '@/lib/chart-model';
 import { Sparkline, type LiveTick } from '@/components/stock-charts';
 import { WatchlistToolbar } from '@/components/watchlist-toolbar';
@@ -50,6 +51,7 @@ const formatted = (value: number, market: Market) => value.toLocaleString('en-US
 });
 const statusLabel = (status?: string) => !status ? '연결 중' : status === 'OPEN' ? '장중' : status === 'PRE' ? '장전' : status === 'AFTER' ? '장후' : '장종료';
 const REFRESH_MS = 30_000;
+const KIS_REFRESH_MS = 15_000;
 type LiveStatus = { state: string; subscribed: number; requested: number };
 const domesticMarket = (market: Market) => market === 'KOSPI' || market === 'KOSDAQ';
 
@@ -246,9 +248,9 @@ export function Board({ market, graph, payload, largeText, textScale = largeText
       } finally { active = false; }
     };
     void update();
-    const timer = autoRefresh ? window.setInterval(() => { if (!document.hidden) void update(); }, REFRESH_MS) : undefined;
+    const timer = autoRefresh ? window.setInterval(() => { if (!document.hidden) void update(); }, provider === 'kis' ? KIS_REFRESH_MS : REFRESH_MS) : undefined;
     return () => { controller.abort(); if (timer) window.clearInterval(timer); };
-  }, [market, codes, autoRefresh, size.width, afterMarket]);
+  }, [market, codes, autoRefresh, size.width, afterMarket, provider]);
 
   const columns = Array.from({ length: layout.columns }, (_, column) => visible.slice(column * layout.rows, (column + 1) * layout.rows));
   const asOf = payload?.asOf ? new Date(payload.asOf).toLocaleString('ko-KR', {
@@ -299,8 +301,8 @@ export function Board({ market, graph, payload, largeText, textScale = largeText
     </div>
     <footer className="board-footer">
       <p className={error ? 'connection-error' : ''}>{error ?? (payload ? `${watch ? `관심종목 · 한국 ${afterMarket ? '장전·정규장·장후' : '정규장'}/미국 현지 정규장` : `${statusLabel(payload.marketStatus)} · ${payload.marketStatus === 'OPEN' ? '정규장 현재가' : payload.marketStatus === 'PRE' ? '장전 현재가' : payload.marketStatus === 'AFTER' ? '장후 현재가' : '최종가격'} · ${asOf}${isUS(market) ? ' ET' : ''}`} · ${layout.columns}열${graph ? ' · 실제 분봉 · 전일 기준선 · Y축 자동' : ''}` : '네이버 증권 연결 중')}
-        {provider === 'kis' && autoRefresh && quotes.some((quote) => domesticMarket(quote.market ?? market)) && <span> · KIS REST · {quotes.filter((quote) => domesticMarket(quote.market ?? market)).length}종목 · {watch ? '2' : '3'}초 갱신</span>}
-        {provider === 'kis' && autoRefresh && !quotes.some((quote) => domesticMarket(quote.market ?? market)) && payload?.marketStatus === 'OPEN' && <span> · {liveStatus.state === 'connected' && liveStatus.subscribed > 0 ? `KIS 구독 ${liveStatus.subscribed}/${liveStatus.requested || visible.length} · 미구독 30초` : 'KIS 연결 대기 · 30초 갱신'}</span>}
+        {provider === 'kis' && autoRefresh && quotes.some((quote) => domesticMarket(quote.market ?? market)) && <span> · KIS REST · {quotes.filter((quote) => domesticMarket(quote.market ?? market)).length}종목 · 15초 갱신</span>}
+        {provider === 'kis' && autoRefresh && !quotes.some((quote) => domesticMarket(quote.market ?? market)) && payload?.marketStatus === 'OPEN' && <span> · {liveStatus.state === 'connected' && liveStatus.subscribed > 0 ? `KIS REST ${liveStatus.subscribed}/${liveStatus.requested || visible.length} · 15초` : 'KIS 연결 대기 · 15초 갱신'}</span>}
       </p>
       <Pagination className="board-pagination" aria-label={`${market} 종목 페이지`}><PaginationContent>
         <PaginationItem><Button variant="ghost" size="icon" disabled={currentPage === 0} onClick={() => setPage(currentPage - 1)} aria-label="이전 종목"><ChevronLeft /></Button></PaginationItem>
@@ -426,7 +428,7 @@ export function StockDashboard() {
         setWatchQuoteState((current) => ({ mode: krxMode, quotes: current.mode === krxMode ? { ...current.quotes, ...result.quotes } : result.quotes }));
         failed += Object.keys(result.errors).length;
         setWatchError(failed ? `${failed}종목 시세 수신 실패 · 마지막 수신값 유지 / 미수신 종목은 위 목록에 표시` : '');
-      } catch (error) { if (!stopped && !controller.signal.aborted) setWatchError(error instanceof Error ? error.message : '관심종목 연결 실패'); }
+      } catch (error) { if (!stopped && !controller.signal.aborted) setWatchError(requestErrorMessage(error, '관심종목 연결 지연 · 마지막 수신값 유지 / 자동 재시도 중')); }
       finally { if (!stopped && autoRefresh) timer = window.setTimeout(() => { void load(); }, watchRefreshMs); }
     };
     void load();
@@ -474,7 +476,7 @@ export function StockDashboard() {
           setErrors((current) => ({ ...current, [market]: undefined }));
           if (result.indices?.length) setIndices(result.indices);
         } catch (error) {
-          setErrors((current) => ({ ...current, [market]: error instanceof Error ? error.message : '시세 연결 재시도 중' }));
+          setErrors((current) => ({ ...current, [market]: requestErrorMessage(error, '시세 연결 지연 · 마지막 수신값 유지 / 자동 재시도 중') }));
         }
       }), (async () => {
         try {
@@ -556,7 +558,7 @@ export function StockDashboard() {
       </div>
       <div className="header-actions">
         <ProfileLogin sync={sync} localImport={{ type: 'import', watchlist: localWatchlists[0], watchlists: localWatchlists, highlights: [...localHighlights], largeText: localTextScale > 0, textScale: localTextScale }} />
-        <span className="refresh-status" title={provider === 'kis' ? '국내 시세는 KIS 멀티 REST 공유 캐시로 갱신합니다.' : '시세와 분봉을 30초마다 갱신합니다.'}><i className={autoRefresh ? 'on' : ''} />{autoRefresh ? provider === 'kis' ? 'KIS REST' : '30초' : '멈춤'}</span>
+        <span className="refresh-status" title={provider === 'kis' ? '전체 종목 시세를 KIS 멀티 REST 공유 캐시로 15초마다 갱신합니다.' : '시세와 분봉을 30초마다 갱신합니다.'}><i className={autoRefresh ? 'on' : ''} />{autoRefresh ? provider === 'kis' ? 'KIS REST 15초' : '30초' : '멈춤'}</span>
         <Button variant="ghost" size="icon" disabled={busy} onClick={() => void refresh()} aria-label="지금 새로고침" title="지금 새로고침"><RefreshCw className={busy ? 'refreshing' : ''} /></Button>
         <Button variant="ghost" size="icon" onClick={() => setAutoRefresh((value) => !value)} aria-label={autoRefresh ? '자동 갱신 멈춤' : '자동 갱신 시작'} title={autoRefresh ? '자동 갱신 멈춤' : '자동 갱신 시작'}>{autoRefresh ? <Pause /> : <Play />}</Button>
         <Button variant="ghost" size="icon" onClick={() => void fullscreen()} aria-label="전체 화면" title="전체 화면"><Expand /></Button>
@@ -570,7 +572,7 @@ export function StockDashboard() {
       </TabsContent>)}
       {watchViews.map((view) => <TabsContent key={view.value} value={view.value} className="market-panel watch-panel">
         <WatchlistToolbar items={watchlists[view.list]} onChange={(items) => setWatchlist(items, view.list)} disabled={sync.enabled && sync.phase !== 'ready'} storageError={sync.enabled ? sync.phase !== 'ready' ? '상단 로그인 후 관심종목을 불러오세요.' : '' : storageError} />
-        <Board market="KOSPI" graph={view.graph} highlighted={highlighted} onHighlight={onHighlight} watch signals={view.list === 0 || view.list === 3 || view.list === 4 ? watchSignals : undefined} onReorder={(source, target) => reorderWatch(source, target, view.list)} onRemove={(quote) => removeWatch(quote, view.list)} payload={watchPayloadFor(view.list)} largeText={largeText} textScale={textScale} autoRefresh={autoRefresh} error={watchlists[view.list].length ? watchError || (savedQuotesFor(view.list).length ? undefined : '관심종목 시세 수신 중…') : sync.enabled && sync.phase !== 'ready' ? '상단 로그인 후 서버 기록을 불러오세요.' : undefined} now={now} provider={provider} afterMarket={krxMode === 'KRX2'} />
+        <Board market="KOSPI" graph={view.graph} highlighted={highlighted} onHighlight={onHighlight} watch signals={watchSignals} onReorder={(source, target) => reorderWatch(source, target, view.list)} onRemove={(quote) => removeWatch(quote, view.list)} payload={watchPayloadFor(view.list)} largeText={largeText} textScale={textScale} autoRefresh={autoRefresh} error={watchlists[view.list].length ? watchError || (savedQuotesFor(view.list).length ? undefined : '관심종목 시세 수신 중…') : sync.enabled && sync.phase !== 'ready' ? '상단 로그인 후 서버 기록을 불러오세요.' : undefined} now={now} provider={provider} afterMarket={krxMode === 'KRX2'} />
       </TabsContent>)}
     </Tabs>
   </main>;

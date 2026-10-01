@@ -5,7 +5,7 @@ export const dynamic = 'force-dynamic';
 export const runtime = 'nodejs';
 export const maxDuration = 300;
 
-const REFRESH_MS = 3_000;
+const REFRESH_MS = 15_000;
 const encoder = new TextEncoder();
 
 function sse(event: string, data: unknown) {

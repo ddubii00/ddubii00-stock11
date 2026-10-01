@@ -2,6 +2,7 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { applyOperation, emptyProfile, restoreProfile, type Profile, type ProfileOperation } from '@/lib/profile';
 import { apiPath } from '@/lib/base-path';
+import { requestErrorMessage } from '@/lib/request-error';
 
 type Pending = { id: string; operation: ProfileOperation };
 export const PROFILE_CACHE_KEY = 'stock11.server-profile.v1';
@@ -92,7 +93,7 @@ export function useServerProfile() {
         confirmed.current = restored; cacheProfile(restored); pending.current.shift(); publish();
       }
     } catch (error) {
-      if (generation === epoch.current) setMessage(error instanceof Error ? error.message : '서버 저장 실패');
+      if (generation === epoch.current) setMessage(requestErrorMessage(error, '서버 저장 지연 · 미저장 변경을 유지합니다. 다시 저장해 주세요.'));
     } finally {
       if (generation === epoch.current) { busy.current = false; setSaving(false); setUnsaved(pending.current.length > 0); }
     }
@@ -105,10 +106,14 @@ export function useServerProfile() {
     if (!message) void flush();
   };
   const login = async (password: string) => {
-    const response = await fetch(apiPath('/api/session'), { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ password }), signal: AbortSignal.timeout(30000) });
-    const result = await response.json();
-    if (!response.ok) throw new Error(result.error ?? '로그인 실패');
-    epoch.current++; await refresh(); window.dispatchEvent(new window.Event('stock11-session-changed'));
+    try {
+      const response = await fetch(apiPath('/api/session'), { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ password }), signal: AbortSignal.timeout(30000) });
+      const result = await response.json();
+      if (!response.ok) throw new Error(result.error ?? '로그인 실패');
+      epoch.current++; await refresh(); window.dispatchEvent(new window.Event('stock11-session-changed'));
+    } catch (error) {
+      throw new Error(requestErrorMessage(error, '로그인 연결 지연 · 다시 시도해 주세요.'));
+    }
   };
   const logout = async () => {
     if (pending.current.length) throw new Error('미저장 변경을 먼저 저장해 주세요.');

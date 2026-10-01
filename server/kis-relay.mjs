@@ -19,9 +19,10 @@ let tokenPending;
 const KIS_ORIGIN = process.env.KIS_ORIGIN || 'https://openapi.koreainvestment.com:9443';
 const restMinInterval = Math.max(100, Number(process.env.KIS_REST_MIN_INTERVAL_MS) || 350);
 const restMaxConcurrency = Math.max(1, Math.min(8, Number(process.env.KIS_REST_MAX_CONCURRENCY) || 2));
-const visibleRefreshMs = 3_000;
-const watchRefreshMs = 3_000;
-const backgroundRefreshMs = Math.max(10_000, Number(process.env.KIS_BACKGROUND_REFRESH_MS) || 20_000);
+const KIS_REFRESH_MS = 15_000;
+const visibleRefreshMs = KIS_REFRESH_MS;
+const watchRefreshMs = KIS_REFRESH_MS;
+const backgroundRefreshMs = KIS_REFRESH_MS;
 const REGULAR_CLOSE_RETRY_MS = 30_000;
 const NXT_CLOSE_RETRY_MS = 30_000;
 
@@ -767,7 +768,7 @@ const server = createServer(async (request, response) => {
       configured: configured(),
       transport: 'rest-only',
       websocket: false,
-      refreshMs: 3000,
+      refreshMs: KIS_REFRESH_MS,
       restQueueDepth: restQueue.length,
       restRequests: diagnostics.restRequests,
       restSuccess: diagnostics.restSuccess,
@@ -832,7 +833,7 @@ const server = createServer(async (request, response) => {
       errors: Object.fromEntries(codes.map((code) => [code, 'KIS REST unconfigured'])),
       source: 'kis-rest-only',
       websocket: false,
-      refreshMs: 3000,
+      refreshMs: KIS_REFRESH_MS,
     });
   }
 
@@ -852,7 +853,7 @@ const server = createServer(async (request, response) => {
       errors,
       source: 'kis-rest-only',
       websocket: false,
-      refreshMs: 3000,
+      refreshMs: result.refreshMs,
     });
   } catch (error) {
     state = 'error';
@@ -864,7 +865,7 @@ const server = createServer(async (request, response) => {
       ])),
       source: 'kis-rest-only',
       websocket: false,
-      refreshMs: 3000,
+      refreshMs: KIS_REFRESH_MS,
     });
   }
 });
