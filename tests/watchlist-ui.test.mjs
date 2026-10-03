@@ -121,7 +121,7 @@ test('small watchlists use normal row height, minute trends, and cell-local dele
   dom.window.HTMLElement.prototype.getBoundingClientRect = () => ({ width: 1600, height: 800, top: 0, left: 0, right: 1600, bottom: 800, x: 0, y: 0, toJSON() {} });
   const requests = [];
   globalThis.fetch = async (url) => { requests.push(url); return Response.json({ series: {}, errors: {} }); };
-  const quotes = [samsung, apple].map((item) => ({ ...item, price: 100, previousClose: 99, change: 1, changePrice: 1, asOf: '2026-09-07T15:30:00+09:00', turnover: '', marketStatus: 'CLOSE' }));
+  const quotes = [samsung, apple].map((item, index) => ({ ...item, price: 100, previousClose: 99, change: 1, changePrice: 1, volume: index ? '7654321' : '1234567', asOf: '2026-09-07T15:30:00+09:00', turnover: '', marketStatus: 'CLOSE' }));
   function Harness({ graph }) {
     const [stocks, setStocks] = React.useState(quotes);
     return React.createElement(Board, { market: 'KOSPI', graph, watch: true, payload: { stocks, indices: [], marketStatus: 'CLOSE', asOf: quotes[0].asOf, source: 'test' }, largeText: true, autoRefresh: false, now: Date.parse('2026-09-08T09:00:00+09:00'), provider: 'naver', onRemove: (quote) => setStocks((current) => current.filter((item) => item.code !== quote.code)) });
@@ -133,7 +133,11 @@ test('small watchlists use normal row height, minute trends, and cell-local dele
       const button = screen.getByRole('button', { name: '삼성전자 관심종목 삭제' });
       assert.equal(button.closest('a'), null);
       assert.ok(button.closest(graph ? '.graph-slot' : 'tr'));
-      if (!graph) assert.ok(Number.parseFloat(button.closest('tr').style.height) <= 32);
+      if (!graph) {
+        assert.ok(Number.parseFloat(button.closest('tr').style.height) <= 32);
+        assert.ok(screen.getByText('1,234,567').classList.contains('volume-cell'));
+        assert.ok(screen.getByText('7,654,321').classList.contains('volume-cell'));
+      }
       else {
         await waitFor(() => assert.ok(requests.some((url) => url.includes('kind=minutes'))));
         assert.ok(!requests.some((url) => url.includes('kind=candles')));

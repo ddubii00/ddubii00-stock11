@@ -49,6 +49,10 @@ const tone = (change: number) => change > 0 ? 'price-up' : change < 0 ? 'price-d
 const formatted = (value: number, market: Market) => value.toLocaleString('en-US', {
   minimumFractionDigits: isUS(market) ? 2 : 0, maximumFractionDigits: isUS(market) ? 2 : 0,
 });
+const formattedVolume = (value?: string) => {
+  const numeric = Number(String(value ?? '').replaceAll(',', ''));
+  return Number.isFinite(numeric) && numeric >= 0 ? Math.trunc(numeric).toLocaleString('en-US') : '—';
+};
 const statusLabel = (status?: string) => !status ? '연결 중' : status === 'OPEN' ? '장중' : status === 'PRE' ? '장전' : status === 'AFTER' ? '장후' : '장종료';
 const REFRESH_MS = 30_000;
 const KIS_REFRESH_MS = 15_000;
@@ -292,7 +296,7 @@ export function Board({ market, graph, payload, largeText, textScale = largeText
                 <TableCell className="stock-name" title={`${quote.name} (${quote.code}) · ${quote.market} ${statusLabel(quote.marketStatus)} · ${quote.asOf} · 거래대금 ${quote.turnover}`}><a href={stockUrl(quote, quote.market ?? market)} target="_blank" rel="noopener noreferrer"><strong>{quote.name}</strong></a>{signals?.[key] && <SignalTag signal={signals[key]} />}{watch && onRemove && <Button variant="ghost" size="icon" className="stock-remove" aria-label={`${quote.name} 관심종목 삭제`} title="관심종목 삭제" onClick={() => onRemove(quote)}><X /></Button>}</TableCell>
                 <TableCell><Price quote={quote} market={quote.market ?? market} /></TableCell>
                 <TableCell>{quote.pending ? <span className="price-flat">—</span> : <Change value={quote.change} />}</TableCell>
-                {watch && <TableCell className="volume-cell">{quote.pending ? '—' : quote.volume ?? '—'}</TableCell>}
+                {watch && <TableCell className="volume-cell">{quote.pending ? '—' : formattedVolume(quote.volume)}</TableCell>}
                 {hasActions && <TableCell className="stock-remove-cell">{onRemove && <Button variant="ghost" size="icon" className="stock-remove" aria-label={`${quote.name} 관심종목 삭제`} title="관심종목 삭제" onClick={() => onRemove(quote)}><X /></Button>}</TableCell>}
               </TableRow>; })}</TableBody>
             </Table>
