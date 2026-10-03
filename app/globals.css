@@ -205,7 +205,9 @@ a { color: inherit; text-decoration: none; }
 /* Compact trend rows: identity / actual trend / large price. Axes live in tooltips. */
 .graph-card { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1.25fr) 120px; align-items: center; column-gap: 7px; padding: 2px 8px; }
 .graph-identity { display: flex; flex-direction: column; align-items: flex-start; gap: 1px; }
+.graph-title { display: flex; align-items: center; min-width: 0; max-width: 100%; }
 .graph-identity > a { position: relative; z-index: 1; max-width: 100%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; pointer-events: auto; }
+.graph-title > a { position: relative; z-index: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; pointer-events: auto; }
 .graph-identity strong { max-width: 100%; font-size: 15px; }
 .graph-identity > span { max-width: 100%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: #7a867e; font-size: 11px; }
 .graph-price { display: flex; flex-direction: column; align-items: flex-end; gap: 1px; }
@@ -266,7 +268,7 @@ a { color: inherit; text-decoration: none; }
 .watch-quote-table .volume-head,
 .watch-quote-table .volume-cell { transform: translateX(-18px); }
 .core-signal { display: inline-block; margin-left: 3px; padding: 0 2px; border-radius: 3px; font-size: 8px; font-weight: 700; line-height: 12px; vertical-align: middle; white-space: nowrap; }
-.graph-identity > .core-signal { color: inherit; font-size: 8px; line-height: 12px; }
+.graph-identity .core-signal { color: inherit; font-size: 8px; line-height: 12px; }
 .core-signal.partial_buy { color: #a61c2b; background: #fde5e8; }
 .core-signal.partial_sell { color: #1659a8; background: #e4efff; }
 .core-signal.hold { color: #333; background: #ececec; }

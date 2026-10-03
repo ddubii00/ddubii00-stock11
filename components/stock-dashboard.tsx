@@ -266,7 +266,7 @@ export function Board({ market, graph, payload, largeText, textScale = largeText
             return <div className={`graph-slot ${watch ? 'watch-slot' : ''}`} key={key} data-drop-target={dropTarget === key} {...dropEvents(key)} style={{ gridColumn: Math.floor(index / layout.rows) + 1, gridRow: index % layout.rows + 1 }}>
               <div className="graph-card" data-highlighted={isHighlighted(key)} data-highlight-color={selected.get(key)}>
               <Button variant="ghost" className="chart-highlight-toggle" aria-label={`${quote.name} ${highlightLabel}`} title={highlightHint} aria-pressed={isHighlighted(key)} onClick={(event) => highlightClick(event, key)} onDoubleClick={() => highlightDoubleClick(key)} />
-              <div className="graph-identity"><a href={stockUrl(quote, exchange)} target="_blank" rel="noopener noreferrer" aria-label={`${quote.name} 네이버 증권 새 탭에서 보기`}><strong title={quote.name}>{quote.name}</strong></a>{signals?.[key] && <SignalTag signal={signals[key]} />}<span>{offset + index + 1} · {quote.code}{watch ? ' · 분봉' : ''}</span></div>
+              <div className="graph-identity"><div className="graph-title"><a href={stockUrl(quote, exchange)} target="_blank" rel="noopener noreferrer" aria-label={`${quote.name} 네이버 증권 새 탭에서 보기`}><strong title={quote.name}>{quote.name}</strong></a>{signals?.[key] && <SignalTag signal={signals[key]} />}</div><span>{offset + index + 1} · {quote.code}{watch ? ' · 분봉' : ''}</span></div>
               <Sparkline series={series[key]} tick={provider === 'kis' && !domesticMarket(exchange) && autoRefresh && (afterMarket ? quote.marketStatus === 'AFTER' : quote.marketStatus === 'OPEN') ? liveTicks[quote.chartCode] : undefined} name={quote.name} now={now} />
               <div className="graph-price"><Price quote={quote} market={exchange} />{quote.pending ? <span className="price-flat">수신 대기</span> : <Change value={quote.change} />}</div>
               {chartErrors[key] && <span className="chart-error">{chartErrors[key]}</span>}
@@ -413,6 +413,9 @@ export function StockDashboard() {
   const activeWatch = watchViews.find((view) => view.value === tab);
   const activeWatchItems = activeWatch ? watchlists[activeWatch.list] : [];
   const watchSymbols = activeWatchItems.map(symbolKey).filter((key, index, all) => all.indexOf(key) === index).join(',');
+  // Signals use daily bars, so refreshing them with every 15-second quote poll
+  // only cancels large watchlist requests before they can populate their tags.
+  const signalDay = new Date(now).toLocaleDateString('en-CA', { timeZone: 'Asia/Seoul' });
   useEffect(() => {
     if (!watchSymbols) return;
     let stopped = false, timer: number | undefined, controller: AbortController | undefined;
@@ -436,11 +439,11 @@ export function StockDashboard() {
   }, [watchSymbols, krxMode, autoRefresh, watchRefreshMs]);
 
   useEffect(() => {
-    if (!watchSymbols) { setWatchSignals({}); return; }
+    if (!watchSymbols) return;
     const controller = new AbortController();
-    void fetch(`${apiPath('/api/analyze')}?symbols=${encodeURIComponent(watchSymbols)}`, { signal: controller.signal, cache: 'no-store' }).then((response) => response.ok ? response.json() as Promise<{ signals: Record<string, CoreSignal> }> : Promise.reject(new Error('분석 대기'))).then((result) => { if (!controller.signal.aborted) setWatchSignals(result.signals); }).catch(() => { if (!controller.signal.aborted) setWatchSignals({}); });
+    void fetch(`${apiPath('/api/analyze')}?symbols=${encodeURIComponent(watchSymbols)}`, { signal: controller.signal, cache: 'no-store' }).then((response) => response.ok ? response.json() as Promise<{ signals: Record<string, CoreSignal> }> : Promise.reject(new Error('분석 대기'))).then((result) => { if (!controller.signal.aborted) setWatchSignals((current) => ({ ...current, ...result.signals })); }).catch(() => { /* Keep already calculated daily tags during a transient analysis failure. */ });
     return () => controller.abort();
-  }, [watchSymbols, now]);
+  }, [watchSymbols, signalDay]);
 
   useEffect(() => {
     const controller = new AbortController();
