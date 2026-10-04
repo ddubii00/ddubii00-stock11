@@ -1,0 +1,18 @@
+[Unit]
+Description=Stock11 and Stock5 bidirectional interest/holding sync
+After=network-online.target docker.service webapp-stock5-8.service
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=root
+EnvironmentFile=-/etc/stock-interest-sync.env
+ExecStart=/usr/bin/python3 /usr/local/sbin/stock-interest-sync.py
+Restart=always
+RestartSec=5
+UMask=0077
+NoNewPrivileges=true
+PrivateTmp=true
+
+[Install]
+WantedBy=multi-user.target

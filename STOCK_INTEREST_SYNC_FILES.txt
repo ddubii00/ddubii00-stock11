@@ -1,0 +1,10 @@
+stock11 GitHub 추가 파일
+
+scripts/stock-interest-sync.py
+deploy/stock-interest-sync.service.example
+deploy/stock-interest-sync.env.example
+deploy/install-stock-interest-sync.sh
+docs/stock-interest-sync.md
+
+이 패키지는 기존 파일을 덮어쓰지 않고 위 신규 파일만 추가합니다.
+실제 비밀번호, KIS 키, 세션, SQLite 데이터는 포함하지 않습니다.
